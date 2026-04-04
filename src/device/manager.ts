@@ -472,7 +472,7 @@ export class DeviceManager {
   }
 }
 
-function sprintf(fmt: string, ...args: (string | number)[]): string {
+export function sprintf(fmt: string, ...args: (string | number)[]): string {
   let argIdx = 0;
   return fmt.replace(/%[ds]/g, (match) => {
     const val = args[argIdx++];

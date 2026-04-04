@@ -64,7 +64,7 @@ Clients connect to `/ws/screen/{sn}` and send JSON:
 - `{"type":"keyCode","sn":"...","message":{"key":"HOME","code":"..."}}` — key press
 - `{"type":"stop","sn":"..."}` — stop capture
 
-Video frames are sent as raw binary WebSocket messages (H.264 NALUs extracted from protobuf `payload["data"].val_bytes`).
+Video frames are sent as raw binary WebSocket messages (H.264 NALUs extracted from protobuf `payload["data"].val_bytes`). Server sends `{ type: 'screenConfig', scale: N }` JSON message when stream is ready.
 
 ### gRPC Service (on device)
 
@@ -78,7 +78,15 @@ service ScrcpyService {
 
 ### Multi-Client Support
 
-Multiple WebSocket clients can share one device's scrcpy stream. `DeviceContext` tracks clients and cleans up when the last one disconnects.
+Multiple WebSocket clients can share one device's scrcpy stream. `DeviceContext` tracks clients and cleans up when the last one disconnects. A `startLock` Promise prevents concurrent scrcpy startup when multiple clients connect simultaneously.
+
+### Touch Coordinate Mapping
+
+Video is captured at `device_resolution / scale` (default scale=2). Touch coordinates from the video must be multiplied by `scale` to map to device screen coordinates. Server sends `{ type: 'screenConfig', scale }` on stream ready; frontend stores it and applies in `getVideoCoords()`.
+
+### Key Event Routing
+
+`uitest.pressKey()` only handles HOME (3) and BACK (4) via uitest agent API. All other keys (VOLUME, POWER, etc.) fall through to `uinput -K -d <code> -u <code>` shell command.
 
 ## Reference
 

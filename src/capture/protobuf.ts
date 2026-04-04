@@ -30,12 +30,12 @@
 
 // ========== Low-level protobuf wire format ==========
 
-const WIRE_VARINT = 0;
-const WIRE_64BIT = 1;
-const WIRE_LENGTH_DELIMITED = 2;
-const WIRE_32BIT = 5;
+export const WIRE_VARINT = 0;
+export const WIRE_64BIT = 1;
+export const WIRE_LENGTH_DELIMITED = 2;
+export const WIRE_32BIT = 5;
 
-function encodeVarint(value: number | bigint): Buffer {
+export function encodeVarint(value: number | bigint): Buffer {
   const bytes: number[] = [];
   let v = typeof value === 'bigint' ? value : BigInt(value);
   while (v > 0x7fn) {
@@ -46,7 +46,7 @@ function encodeVarint(value: number | bigint): Buffer {
   return Buffer.from(bytes);
 }
 
-function decodeVarint(buf: Buffer, offset: number): [bigint, number] {
+export function decodeVarint(buf: Buffer, offset: number): [bigint, number] {
   let result = 0n;
   let shift = 0n;
   let i = offset;
@@ -60,37 +60,37 @@ function decodeVarint(buf: Buffer, offset: number): [bigint, number] {
   return [result, i];
 }
 
-function encodeTag(fieldNum: number, wireType: number): Buffer {
+export function encodeTag(fieldNum: number, wireType: number): Buffer {
   return encodeVarint((fieldNum << 3) | wireType);
 }
 
-function encodeLengthDelimited(fieldNum: number, data: Buffer): Buffer {
+export function encodeLengthDelimited(fieldNum: number, data: Buffer): Buffer {
   return Buffer.concat([encodeTag(fieldNum, WIRE_LENGTH_DELIMITED), encodeVarint(data.length), data]);
 }
 
-function encodeInt32(fieldNum: number, value: number): Buffer {
+export function encodeInt32(fieldNum: number, value: number): Buffer {
   if (value === 0) return Buffer.alloc(0);
   return Buffer.concat([encodeTag(fieldNum, WIRE_VARINT), encodeVarint(value < 0 ? value + 0x100000000 : value)]);
 }
 
-function encodeInt64(fieldNum: number, value: number | bigint): Buffer {
+export function encodeInt64(fieldNum: number, value: number | bigint): Buffer {
   if (value === 0) return Buffer.alloc(0);
   return Buffer.concat([encodeTag(fieldNum, WIRE_VARINT), encodeVarint(BigInt(value))]);
 }
 
-function encodeBool(fieldNum: number, value: boolean): Buffer {
+export function encodeBool(fieldNum: number, value: boolean): Buffer {
   if (!value) return Buffer.alloc(0);
   return Buffer.concat([encodeTag(fieldNum, WIRE_VARINT), Buffer.from([1])]);
 }
 
-function encodeFloat(fieldNum: number, value: number): Buffer {
+export function encodeFloat(fieldNum: number, value: number): Buffer {
   const tmp = Buffer.alloc(5);
   tmp[0] = 0x35 | (fieldNum << 3); // tag: field 6, wire type 5 (32-bit)
   tmp.writeFloatLE(value, 1);
   return tmp;
 }
 
-function encodeDouble(fieldNum: number, value: number): Buffer {
+export function encodeDouble(fieldNum: number, value: number): Buffer {
   return Buffer.concat([encodeTag(fieldNum, WIRE_64BIT), Buffer.alloc(8).fill(0)]);
   // Note: writeDoubleLE would go here but not needed for client-side
 }
@@ -118,15 +118,15 @@ export interface ReplyEndMessage {
 
 // ========== Decoding ==========
 
-function decodeString(buf: Buffer, offset: number, length: number): [string, number] {
+export function decodeString(buf: Buffer, offset: number, length: number): [string, number] {
   return [buf.subarray(offset, offset + length).toString('utf-8'), offset + length];
 }
 
-function decodeBytes(buf: Buffer, offset: number, length: number): [Buffer, number] {
+export function decodeBytes(buf: Buffer, offset: number, length: number): [Buffer, number] {
   return [buf.subarray(offset, offset + length), offset + length];
 }
 
-function decodeParamValue(buf: Buffer, offset: number, end: number): [ParamValue, number] {
+export function decodeParamValue(buf: Buffer, offset: number, end: number): [ParamValue, number] {
   const result: ParamValue = {};
   while (offset < end) {
     const [tagVal, newOffset] = decodeVarint(buf, offset);

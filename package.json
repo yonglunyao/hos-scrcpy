@@ -7,27 +7,47 @@
   "bin": {
     "hos-scrcpy": "dist/bin/server.js"
   },
+  "files": [
+    "dist/",
+    "templates/"
+  ],
   "scripts": {
     "build": "tsc && node scripts/build.js",
-    "postinstall": "npm run build",
     "start": "node dist/bin/server.js",
     "ui": "node scripts/start-ui.js",
-    "dev": "ts-node src/bin/server.ts"
+    "dev": "ts-node src/bin/server.ts",
+    "prepublishOnly": "npm run build",
+    "test": "vitest run",
+    "test:unit": "vitest run --dir test/unit",
+    "test:integration": "vitest run --dir test/integration",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "npx playwright test --config test/e2e/playwright.config.ts",
+    "test:e2e:headed": "npx playwright test --config test/e2e/playwright.config.ts --headed",
+    "test:e2e:debug": "npx playwright test --config test/e2e/playwright.config.ts --debug"
   },
   "keywords": [
     "harmonyos",
     "scrcpy",
     "screen-cast",
-    "hdc"
+    "hdc",
+    "screen-mirroring",
+    "huawei"
   ],
+  "author": "Yonglun Yao <yonglunyao@gmail.com>",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yonglunyao/hos-scrcpy"
+  },
   "dependencies": {
-    "@grpc/grpc-js": "^1.14.3",
     "ws": "^8.16.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@types/node": "^20.11.0",
     "@types/ws": "^8.5.10",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "vitest": "^4.1.2"
   }
 }

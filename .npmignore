@@ -1,0 +1,30 @@
+# Source code (published package only includes dist/)
+src/
+test/
+docs/
+
+# Development
+scripts/
+tsconfig.json
+vitest.config.ts
+.claude/
+CLAUDE.md
+*.md
+!README.md
+
+# Build artifacts
+*.tsbuildinfo
+
+# IDE
+.vscode/
+.idea/
+
+# Test results
+test-results/
+playwright-report/
+
+# Misc
+.git/
+.gitignore
+.DS_Store
+Thumbs.db

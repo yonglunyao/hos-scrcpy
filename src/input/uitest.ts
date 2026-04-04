@@ -365,7 +365,7 @@ export class UitestServer {
     await this.sendRequest(request);
   }
 
-  private buildGesturesRequest(api: string, args: Record<string, number>): string {
+  buildGesturesRequest(api: string, args: Record<string, number>): string {
     return JSON.stringify({
       module: 'com.ohos.devicetest.hypiumApiHelper',
       method: 'Gestures',
@@ -373,7 +373,7 @@ export class UitestServer {
     });
   }
 
-  private buildModuleRequest(method: string, params: Record<string, unknown>): string {
+  buildModuleRequest(method: string, params: Record<string, unknown>): string {
     return JSON.stringify({
       module: 'com.ohos.devicetest.hypiumApiHelper',
       method,
@@ -381,7 +381,7 @@ export class UitestServer {
     });
   }
 
-  private buildCallHypiumRequest(api: string, args: unknown): string {
+  buildCallHypiumRequest(api: string, args: unknown): string {
     return JSON.stringify({
       module: 'com.ohos.devicetest.hypiumApiHelper',
       method: 'callHypiumApi',

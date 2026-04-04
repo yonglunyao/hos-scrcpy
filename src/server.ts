@@ -20,6 +20,20 @@ export interface ServerConfig {
  * 与原 demoWithoutRecord.jar 的 WebSocket 协议完全兼容，
  * 可直接替换 ohos-screen-cast 的 Python 后端。
  */
+export function getContentType(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase();
+  const types: Record<string, string> = {
+    '.html': 'text/html; charset=utf-8',
+    '.js': 'application/javascript',
+    '.css': 'text/css',
+    '.json': 'application/json',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.ico': 'image/x-icon',
+  };
+  return types[ext] || 'application/octet-stream';
+}
+
 export class HosScrcpyServer {
   private httpServer: http.Server;
   private wss: WebSocketServer;
@@ -94,7 +108,7 @@ export class HosScrcpyServer {
       const filePath = path.join(this.config.templatesDir, url === '/' ? 'index.html' : url);
       console.log(`[HTTP] static file: ${filePath}, exists: ${fs.existsSync(filePath)}`);
       if (fs.existsSync(filePath) && !fs.statSync(filePath).isDirectory()) {
-        res.writeHead(200, { 'Content-Type': this.getContentType(filePath) });
+        res.writeHead(200, { 'Content-Type': getContentType(filePath) });
         fs.createReadStream(filePath).pipe(res);
         return;
       }
@@ -185,19 +199,6 @@ ws.send(JSON.stringify({
     }
   }
 
-  private getContentType(filePath: string): string {
-    const ext = path.extname(filePath).toLowerCase();
-    const types: Record<string, string> = {
-      '.html': 'text/html; charset=utf-8',
-      '.js': 'application/javascript',
-      '.css': 'text/css',
-      '.json': 'application/json',
-      '.png': 'image/png',
-      '.jpg': 'image/jpeg',
-      '.ico': 'image/x-icon',
-    };
-    return types[ext] || 'application/octet-stream';
-  }
 
   // ========== WebSocket ==========
 
