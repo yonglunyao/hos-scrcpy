@@ -798,6 +798,266 @@ import { KEY_CODE_MAP } from 'hos-scrcpy';
 
 ---
 
+## 集成案例
+
+### 案例 1: Express 服务器集成
+
+在 Express 应用中集成 hos-scrcpy，提供投屏 API。
+
+```typescript
+import express from 'express';
+import { HosScrcpyServer } from 'hos-scrcpy';
+
+const app = express();
+const port = 3000;
+
+// 启动投屏服务
+const scrcpyServer = new HosScrcpyServer({ port: 9523 });
+await scrcpyServer.start();
+
+// API 端点
+app.get('/api/start-cast/:sn', async (req, res) => {
+  // 自定义投屏启动逻辑
+  res.json({ message: 'Casting started for ' + req.params.sn });
+});
+
+app.listen(port, () => {
+  console.log(`Server running at http://localhost:${port}`);
+});
+```
+
+### 案例 2: 自定义视频流处理
+
+接收 H.264 视频流并保存到文件或转发。
+
+```typescript
+import { DeviceManager, UitestServer, DirectScrcpyStream } from 'hos-scrcpy';
+import { createWriteStream } from 'fs';
+
+const device = new DeviceManager({ sn: 'FMR0223B16009134' });
+await device.startScrcpyWithForward();
+device.setScrcpyForwardPort(await device.startScrcpyWithForward());
+
+// 创建文件写入流
+const outputStream = createWriteStream('screen.mp4');
+
+const stream = new DirectScrcpyStream(device);
+await stream.start({
+  onData: (h264Nalu: Buffer) => {
+    // 处理 H.264 数据
+    outputStream.write(h264Nalu);
+  },
+  onReady: () => console.log('录制开始'),
+  onError: (err) => {
+    console.error('录制错误:', err);
+    outputStream.close();
+  },
+});
+```
+
+### 案例 3: 多设备管理
+
+同时管理多个 HarmonyOS 设备。
+
+```typescript
+import { DeviceManager } from 'hos-scrcpy';
+
+const devices = new Map<string, DeviceManager>();
+
+// 添加设备
+devices.set('device1', new DeviceManager({
+  sn: 'FMR0223B16009134',
+  scale: 2,
+}));
+
+devices.set('device2', new DeviceManager({
+  sn: 'FMR0223B16009999',
+  scale: 1,
+}));
+
+// 批量启动
+for (const [id, device] of devices) {
+  await device.startScrcpyWithForward();
+  console.log(`设备 ${id} 已启动`);
+}
+
+// 批量停止
+for (const [id, device] of devices) {
+  await device.stopScrcpy();
+  console.log(`设备 ${id} 已停止`);
+}
+```
+
+### 案例 4: WebSocket 客户端集成
+
+使用 WebSocket 客户端连接 hos-scrcpy 服务器。
+
+```typescript
+import { WebSocket } from 'ws';
+
+const ws = new WebSocket('ws://localhost:9523/ws/screen/FMR0223B16009134');
+
+ws.on('open', () => {
+  // 开始投屏
+  ws.send(JSON.stringify({
+    type: 'screen',
+    sn: 'FMR0223B16009134',
+  }));
+});
+
+ws.on('message', (data: Buffer) => {
+  if (data[0] === 123) {
+    // JSON 消息 (如 screenConfig)
+    const msg = JSON.parse(data.toString());
+    console.log('配置:', msg);
+  } else {
+    // H.264 视频帧
+    console.log('收到视频帧:', data.length, 'bytes');
+  }
+});
+
+// 发送触摸事件
+ws.send(JSON.stringify({
+  type: 'touchEvent',
+  sn: 'FMR0223B16009134',
+  message: { event: 'down', x: 540, y: 1200 },
+}));
+
+// 发送按键
+ws.send(JSON.stringify({
+  type: 'keyCode',
+  sn: 'FMR0223B16009134',
+  message: { key: 'HOME' },
+}));
+```
+
+### 案例 5: 错误处理与重试
+
+健壮的设备连接实现，包含错误处理和自动重试。
+
+```typescript
+import { DeviceManager, DirectScrcpyStream } from 'hos-scrcpy';
+
+async function startCastingWithRetry(
+  sn: string,
+  maxRetries = 3
+): Promise<{ device: DeviceManager; stream: DirectScrcpyStream }> {
+  let lastError: Error | null = null;
+
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const device = new DeviceManager({
+        sn,
+        scale: 2,
+        frameRate: 30,
+        bitRate: 8,
+      });
+
+      // 检查设备是否在线
+      const online = await device.isOnline();
+      if (!online) {
+        throw new Error(`设备 ${sn} 未连接`);
+      }
+
+      // 启动 scrcpy
+      const port = await device.startScrcpyWithForward();
+      device.setScrcpyForwardPort(port);
+
+      // 启动视频流
+      const stream = new DirectScrcpyStream(device);
+      await stream.start({
+        onData: (data) => console.log('收到帧:', data.length),
+        onReady: () => console.log('投屏成功'),
+        onError: (err) => {
+          console.error('流错误:', err);
+          lastError = err;
+        },
+      });
+
+      console.log(`尝试 ${i + 1}/${maxRetries} 成功`);
+      return { device, stream };
+
+    } catch (err) {
+      console.warn(`尝试 ${i + 1}/${maxRetries} 失败:`, err.message);
+      lastError = err;
+      if (i < maxRetries - 1) {
+        await new Promise(r => setTimeout(r, 2000)); // 等待 2 秒后重试
+      }
+    }
+  }
+
+  throw lastError || new Error('未知错误');
+}
+
+// 使用
+try {
+  const { device, stream } = await startCastingWithRetry('FMR0223B16009134');
+  // 投屏成功，执行其他操作...
+} catch (err) {
+  console.error('投屏失败:', err);
+}
+```
+
+### 案例 6: React 组件集成
+
+在 React 应用中集成 hos-scrcpy 控制功能。
+
+```typescript
+import { useState, useEffect } from 'react';
+import { DeviceManager, UitestServer, getHdcKeyCode } from 'hos-scrcpy';
+
+function ScreenCaster({ sn }: { sn: string }) {
+  const [casting, setCasting] = useState(false);
+  const [device, setDevice] = useState<DeviceManager | null>(null);
+  const [uitest, setUitest] = useState<UitestServer | null>(null);
+
+  const startCasting = async () => {
+    const dev = new DeviceManager({ sn, scale: 2 });
+    await dev.startScrcpyWithForward();
+    dev.setScrcpyForwardPort(await dev.startScrcpyWithForward());
+
+    const uitestServer = new UitestServer(dev);
+    await uitestServer.start();
+
+    setDevice(dev);
+    setUitest(uitestServer);
+    setCasting(true);
+  };
+
+  const stopCasting = async () => {
+    if (device) {
+      await device.stopScrcpy();
+    }
+    if (uitest) {
+      await uitest.stop();
+    }
+    setCasting(false);
+  };
+
+  const pressHome = async () => {
+    if (uitest) {
+      await uitest.pressKey(getHdcKeyCode('HOME')!);
+    }
+  };
+
+  return (
+    <div>
+      <button onClick={startCasting} disabled={casting}>
+        开始投屏
+      </button>
+      <button onClick={stopCasting} disabled={!casting}>
+        停止投屏
+      </button>
+      <button onClick={pressHome} disabled={!casting}>
+        HOME
+      </button>
+    </div>
+  );
+}
+```
+
+---
+
 ## 错误处理
 
 SDK 使用标准 JavaScript `Error` 对象。常见错误:
