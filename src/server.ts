@@ -41,11 +41,12 @@ export class HosScrcpyServer {
   private devices = new Map<string, DeviceContext>();
   private clientIdCounter = 0;
   private clientToDevice = new Map<string, string>();  // clientId -> device sn
+  private resolvedPort: number | null = null;  // 存储实际监听端口（支持动态端口）
 
   constructor(config: ServerConfig = {}) {
     this.config = {
       host: config.host || '0.0.0.0',
-      port: config.port || 9523,
+      port: config.port !== undefined ? config.port : 9523,
       hdcPath: config.hdcPath || 'hdc',
       templatesDir: config.templatesDir,
     };
@@ -70,12 +71,22 @@ export class HosScrcpyServer {
   async start(): Promise<void> {
     return new Promise((resolve) => {
       this.httpServer.listen(this.config.port, this.config.host, () => {
-        const url = `http://${this.config.host === '0.0.0.0' ? 'localhost' : this.config.host}:${this.config.port}`;
-        console.log(`\n✓ HosScrcpyServer started at ws://${this.config.host}:${this.config.port}`);
+        const addr = this.httpServer.address();
+        if (addr && typeof addr === 'object') {
+          this.resolvedPort = addr.port;
+        } else if (typeof addr === 'string') {
+          const match = addr.match(/:(\d+)$/);
+          this.resolvedPort = match ? parseInt(match[1], 10) : this.config.port || 9523;
+        } else {
+          this.resolvedPort = this.config.port || 9523;
+        }
+        const url = `http://${this.config.host === '0.0.0.0' ? 'localhost' : this.config.host}:${this.resolvedPort}`;
+        console.log(`\n✓ HosScrcpyServer started at ws://${this.config.host}:${this.resolvedPort}`);
         console.log(`\n  🌐 前端访问地址:`);
         console.log(`     ${url}`);
         console.log(`\n  📡 可用接口:`);
         console.log(`     GET  /api/devices          - 获取设备列表`);
+        console.log(`     GET  /api/status           - 获取投屏状态`);
         console.log(`     WS   /ws/screen/{sn}       - 投屏连接`);
         console.log(`     WS   /ws/uitest/{sn}       - UiTest 模式\n`);
         resolve();
@@ -84,12 +95,89 @@ export class HosScrcpyServer {
   }
 
   async stop(): Promise<void> {
-    for (const ctx of this.devices.values()) {
-      await ctx.stop();
-    }
-    this.devices.clear();
+    // 先停止所有设备投屏
+    await this.stopAll();
+    // 关闭 HTTP/WS 服务器
     this.wss.close();
     this.httpServer.close();
+  }
+
+  /**
+   * 启动指定设备的投屏（编程式 API，不依赖 WebSocket 客户端触发）
+   * @param sn 设备序列号
+   */
+  async startDevice(sn: string): Promise<void> {
+    let ctx = this.devices.get(sn);
+    if (ctx) {
+      // 幂等：如果已在投屏，直接返回
+      if (ctx.isScrcpyStarted()) {
+        console.log(`[HosScrcpyServer] Device ${sn} already casting`);
+        return;
+      }
+    } else {
+      // 创建新的 DeviceContext，标记为持久化（无 WS 客户端时也保持）
+      ctx = new DeviceContext({
+        sn,
+        ip: '127.0.0.1',
+        hdcPath: this.config.hdcPath,
+        hdcPort: 8710,
+        scale: 2,
+        frameRate: 60,
+        bitRate: 8,
+        persistent: true,  // 标记为持久化设备
+      });
+      this.devices.set(sn, ctx);
+    }
+
+    // 启动投屏（不需要 WS 客户端）
+    await ctx.startScreenCast();
+    console.log(`[HosScrcpyServer] Device ${sn} casting started`);
+  }
+
+  /**
+   * 停止指定设备的投屏，清理所有资源
+   * @param sn 设备序列号
+   */
+  async stopDevice(sn: string): Promise<void> {
+    const ctx = this.devices.get(sn);
+    if (!ctx) {
+      console.log(`[HosScrcpyServer] Device ${sn} not casting`);
+      return;  // 幂等：未投屏时直接返回
+    }
+
+    await ctx.stop();
+    this.devices.delete(sn);
+    console.log(`[HosScrcpyServer] Device ${sn} stopped`);
+  }
+
+  /**
+   * 停止所有设备的投屏
+   */
+  async stopAll(): Promise<void> {
+    const promises: Promise<void>[] = [];
+    for (const ctx of this.devices.values()) {
+      promises.push(ctx.stop());
+    }
+    await Promise.all(promises);
+    this.devices.clear();
+    console.log(`[HosScrcpyServer] All devices stopped`);
+  }
+
+  /**
+   * 检查指定设备是否正在投屏
+   * @param sn 设备序列号
+   */
+  isCasting(sn: string): boolean {
+    const ctx = this.devices.get(sn);
+    return ctx !== undefined && ctx.isScrcpyStarted();
+  }
+
+  /**
+   * 返回实际监听端口
+   * 支持 config.port = 0 时的动态端口分配
+   */
+  getPort(): number {
+    return this.resolvedPort || this.config.port || 9523;
   }
 
   // ========== HTTP ==========
@@ -103,9 +191,23 @@ export class HosScrcpyServer {
       return;
     }
 
+    if (url.startsWith('/api/status')) {
+      this.handleApiStatus(req, res);
+      return;
+    }
+
     // Serve static files from templates dir
     if (this.config.templatesDir) {
-      const filePath = path.join(this.config.templatesDir, url === '/' ? 'index.html' : url);
+      // 支持 /webview/* 路径映射
+      let relativePath: string;
+      if (url.startsWith('/webview/')) {
+        relativePath = url.slice('/webview/'.length);
+        // 避免 path traversal
+        relativePath = relativePath.replace(/\.\./g, '');
+      } else {
+        relativePath = url === '/' ? 'index.html' : url.slice(1);
+      }
+      const filePath = path.join(this.config.templatesDir, relativePath);
       console.log(`[HTTP] static file: ${filePath}, exists: ${fs.existsSync(filePath)}`);
       if (fs.existsSync(filePath) && !fs.statSync(filePath).isDirectory()) {
         res.writeHead(200, { 'Content-Type': getContentType(filePath) });
@@ -142,6 +244,12 @@ export class HosScrcpyServer {
   </div>
 
   <div class="endpoint">
+    <span class="method get">GET</span> <code>/api/status[?sn=DEVICE_SN]</code>
+    <p>获取投屏状态</p>
+    <pre>curl http://localhost:9523/api/status?sn=设备序列号</pre>
+  </div>
+
+  <div class="endpoint">
     <span class="method ws">WS</span> <code>/ws/screen/{sn}</code>
     <p>投屏 WebSocket 连接</p>
     <pre>
@@ -158,6 +266,28 @@ ws.send(JSON.stringify({
     <span class="method ws">WS</span> <code>/ws/uitest/{sn}</code>
     <p>UiTest 模式 WebSocket</p>
   </div>
+
+  <h2>编程式 API (Node.js)</h2>
+  <pre>
+import { HosScrcpyServer } from 'hos-scrcpy';
+
+const server = new HosScrcpyServer({ port: 8899 });
+await server.start();
+
+// 启动指定设备投屏
+await server.startDevice('设备序列号');
+
+// 检查是否投屏中
+console.log(server.isCasting('设备序列号'));
+
+// 停止设备投屏
+await server.stopDevice('设备序列号');
+
+// 停止所有投屏
+await server.stopAll();
+
+// 获取实际端口
+console.log('Port:', server.getPort());</pre>
 
   <h2>WebSocket 消息类型</h2>
   <ul>
@@ -199,6 +329,31 @@ ws.send(JSON.stringify({
     }
   }
 
+  private handleApiStatus(req: http.IncomingMessage, res: http.ServerResponse): void {
+    try {
+      const url = new URL(req.url || '/', `http://${req.headers.host}`);
+      const sn = url.searchParams.get('sn');
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+
+      if (sn) {
+        // 返回指定设备状态
+        const casting = this.isCasting(sn);
+        res.end(JSON.stringify({ casting, sn }));
+      } else {
+        // 返回所有设备状态
+        const devices: Record<string, { casting: boolean }> = {};
+        for (const [deviceSn, ctx] of this.devices.entries()) {
+          devices[deviceSn] = { casting: ctx.isScrcpyStarted() };
+        }
+        res.end(JSON.stringify({ devices }));
+      }
+    } catch (err) {
+      res.writeHead(500);
+      res.end(JSON.stringify({ error: String(err) }));
+    }
+  }
+
 
   // ========== WebSocket ==========
 
@@ -231,12 +386,16 @@ ws.send(JSON.stringify({
         if (ctx) {
           ctx.stopCaptureForWs(ws);
           await ctx.removeClient(clientId);
-          if (ctx.getClientCount() === 0) {
+          if (ctx.getClientCount() === 0 && !ctx.isPersistent()) {
+            // 非持久化设备，最后一个客户端断开时清理
             console.log(`[WS] No more clients for device ${sn}, cleaning up`);
             // 同步移除，防止新客户端复用已关闭的 DeviceContext
             this.devices.delete(sn);
             // 异步清理资源（不阻塞新连接）
             ctx.stop().catch(e => console.warn('[WS] cleanup error:', e.message));
+          } else if (ctx.getClientCount() === 0 && ctx.isPersistent()) {
+            // 持久化设备，保留投屏流
+            console.log(`[WS] No more clients for persistent device ${sn}, keeping stream alive`);
           }
         }
         this.clientToDevice.delete(clientId);
@@ -385,10 +544,12 @@ class DeviceContext {
   private wsClients = new Map<string, WebSocket>();
   private scrcpyStarted = false;
   private startLock: Promise<void> | null = null;
+  private persistent: boolean = false;  // 持久化标记：无 WS 客户端时也保持投屏
 
-  constructor(config: ScrcpyConfig) {
+  constructor(config: ScrcpyConfig & { persistent?: boolean }) {
     this.manager = new DeviceManager(config);
     this.uitest = new UitestServer(this.manager);
+    this.persistent = config.persistent || false;
   }
 
   addClient(clientId: string): void {
@@ -404,15 +565,38 @@ class DeviceContext {
     return this.clients.size;
   }
 
+  isScrcpyStarted(): boolean {
+    return this.scrcpyStarted;
+  }
 
-  async startScreenCast(ws: WebSocket, clientId?: string): Promise<void> {
-    if (clientId) {
+  isPersistent(): boolean {
+    return this.persistent;
+  }
+
+
+  /**
+   * 启动投屏（编程式 API，无需 WS 客户端）
+   * 用于 server.startDevice() 调用
+   */
+  async startScreenCast(): Promise<void>;
+  /**
+   * 启动投屏（WS 客户端触发）
+   */
+  async startScreenCast(ws: WebSocket, clientId?: string): Promise<void>;
+  async startScreenCast(ws?: WebSocket, clientId?: string): Promise<void> {
+    if (clientId && ws) {
       this.wsClients.set(clientId, ws);
       console.log(`[DeviceContext] Client ${clientId} added to wsClients, total: ${this.wsClients.size}`);
     }
 
     if (this.scrcpyStarted) {
-      console.log(`[DeviceContext] scrcpy already running, client ${clientId} reusing existing stream`);
+      console.log(`[DeviceContext] scrcpy already running, client ${clientId || 'programmatic'} reusing existing stream`);
+      // 向新连接的客户端发送 screenConfig
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        const scale = this.manager.getScale();
+        ws.send(JSON.stringify({ type: 'screenConfig', scale }));
+        console.log(`[DeviceContext] Sent screenConfig to client ${clientId || 'ws'}`);
+      }
       return;
     }
 
@@ -420,6 +604,12 @@ class DeviceContext {
     if (this.startLock) {
       console.log(`[DeviceContext] client ${clientId} waiting for ongoing scrcpy start`);
       await this.startLock;
+      // 等待完成后，如果流已就绪，发送 screenConfig
+      if (this.scrcpyStarted && ws && ws.readyState === WebSocket.OPEN) {
+        const scale = this.manager.getScale();
+        ws.send(JSON.stringify({ type: 'screenConfig', scale }));
+        console.log(`[DeviceContext] Sent screenConfig to client ${clientId || 'ws'} after wait`);
+      }
       return;
     }
 

@@ -104,7 +104,7 @@ import { HosScrcpyServer, ServerConfig } from 'hos-scrcpy';
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `host` | `string` | `'0.0.0.0'` | 监听地址 |
-| `port` | `number` | `9523` | 监听端口 |
+| `port` | `number` | `9523` | 监听端口（设为 `0` 时动态分配） |
 | `hdcPath` | `string` | `'hdc'` | hdc 可执行文件路径 |
 | `templatesDir` | `string` | — | 前端模板目录（提供 Web UI） |
 
@@ -130,12 +130,84 @@ const server = new HosScrcpyServer({
 
 停止所有设备上下文并关闭服务器。
 
+#### `async startDevice(sn: string): Promise<void>`
+
+**编程式 API** — 启动指定设备的投屏，无需 WebSocket 客户端触发。
+
+等价于收到 WS 消息 `{"type":"screen","sn":"xxx"}`，但不依赖客户端连接。
+
+- **幂等**: 如果设备已在投屏，直接返回。
+- **持久化**: 通过此方法启动的设备，即使没有 WS 客户端也保持流活跃。
+
+```typescript
+await server.startDevice('FMR0223B16009134');
+```
+
+#### `async stopDevice(sn: string): Promise<void>`
+
+**编程式 API** — 停止指定设备的投屏，清理所有资源。
+
+- **幂等**: 如果设备未在投屏，直接返回。
+
+```typescript
+await server.stopDevice('FMR0223B16009134');
+```
+
+#### `async stopAll(): Promise<void>`
+
+**编程式 API** — 停止所有设备的投屏。
+
+```typescript
+await server.stopAll();
+```
+
+#### `isCasting(sn: string): boolean`
+
+检查指定设备是否正在投屏。
+
+```typescript
+if (server.isCasting('FMR0223B16009134')) {
+  console.log('设备正在投屏');
+}
+```
+
+#### `getPort(): number`
+
+返回实际监听端口。支持 `config.port = 0` 时的动态端口分配。
+
+```typescript
+const server = new HosScrcpyServer({ port: 0 });
+await server.start();
+console.log('实际端口:', server.getPort());  // 例如: 19148
+```
+
 ### HTTP 端点
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/devices` | 获取已连接设备列表（JSON 数组） |
+| GET | `/api/status[?sn=xxx]` | 获取投屏状态（不传 `sn` 返回所有设备） |
 | GET | `/` | Web UI 页面（需配置 `templatesDir`） |
+| GET | `/webview/*` | 静态文件服务（用于插件 webview） |
+
+#### `/api/status` 响应格式
+
+查询单个设备:
+```json
+// GET /api/status?sn=FMR0223B16009134
+{ "casting": true, "sn": "FMR0223B16009134" }
+```
+
+查询所有设备:
+```json
+// GET /api/status
+{
+  "devices": {
+    "FMR0223B16009134": { "casting": true },
+    "FMR0223B16009135": { "casting": false }
+  }
+}
+```
 
 ### WebSocket 端点
 
@@ -800,9 +872,9 @@ import { KEY_CODE_MAP } from 'hos-scrcpy';
 
 ## 集成案例
 
-### 案例 1: Express 服务器集成
+### 案例 1: Express 服务器集成（使用编程式 API）
 
-在 Express 应用中集成 hos-scrcpy，提供投屏 API。
+在 Express 应用中集成 hos-scrcpy，通过 API 控制设备投屏。
 
 ```typescript
 import express from 'express';
@@ -811,14 +883,29 @@ import { HosScrcpyServer } from 'hos-scrcpy';
 const app = express();
 const port = 3000;
 
-// 启动投屏服务
-const scrcpyServer = new HosScrcpyServer({ port: 9523 });
+// 启动投屏服务（使用动态端口）
+const scrcpyServer = new HosScrcpyServer({ port: 0 });
 await scrcpyServer.start();
+console.log('投屏服务端口:', scrcpyServer.getPort());
 
-// API 端点
-app.get('/api/start-cast/:sn', async (req, res) => {
-  // 自定义投屏启动逻辑
-  res.json({ message: 'Casting started for ' + req.params.sn });
+// API 端点：启动设备投屏
+app.post('/api/cast/:sn/start', async (req, res) => {
+  const { sn } = req.params;
+  await scrcpyServer.startDevice(sn);
+  res.json({ success: true, sn, casting: scrcpyServer.isCasting(sn) });
+});
+
+// API 端点：停止设备投屏
+app.post('/api/cast/:sn/stop', async (req, res) => {
+  const { sn } = req.params;
+  await scrcpyServer.stopDevice(sn);
+  res.json({ success: true, sn, casting: scrcpyServer.isCasting(sn) });
+});
+
+// API 端点：查询投屏状态
+app.get('/api/cast/:sn/status', (req, res) => {
+  const { sn } = req.params;
+  res.json({ sn, casting: scrcpyServer.isCasting(sn) });
 });
 
 app.listen(port, () => {
@@ -826,7 +913,88 @@ app.listen(port, () => {
 });
 ```
 
-### 案例 2: 自定义视频流处理
+### 案例 2: 框架事件驱动的设备管理
+
+模拟 screencast 插件的事件驱动模式，根据框架事件自动管理设备投屏。
+
+```typescript
+import { HosScrcpyServer } from 'hos-scrcpy';
+
+const server = new HosScrcpyServer({ port: 8899 });
+await server.start();
+
+// 模拟框架事件
+interface DeviceEvents {
+  on(event: 'discovered', handler: (sn: string) => void): void;
+  on(event: 'removed', handler: (sn: string) => void): void;
+  on(event: 'activeChanged', handler: (oldSn: string | null, newSn: string | null) => void): void;
+}
+
+// 框架事件驱动
+deviceEvents.on('discovered', async (sn) => {
+  console.log(`设备发现: ${sn}`);
+  await server.startDevice(sn);
+});
+
+deviceEvents.on('removed', async (sn) => {
+  console.log(`设备移除: ${sn}`);
+  await server.stopDevice(sn);
+});
+
+deviceEvents.on('activeChanged', async (oldSn, newSn) => {
+  console.log(`活动设备切换: ${oldSn} -> ${newSn}`);
+  if (oldSn) await server.stopDevice(oldSn);
+  if (newSn) await server.startDevice(newSn);
+});
+
+// 关闭时清理所有投屏
+process.on('SIGINT', async () => {
+  await server.stopAll();
+  await server.stop();
+});
+```
+
+### 案例 3: 多设备并发投屏管理
+
+同时管理多个设备的投屏状态。
+
+```typescript
+import { HosScrcpyServer } from 'hos-scrcpy';
+
+const server = new HosScrcpyServer({ port: 9523 });
+await server.start();
+
+// 批量启动多个设备
+async function startMultipleDevices(sns: string[]) {
+  const results = await Promise.allSettled(
+    sns.map(sn => server.startDevice(sn))
+  );
+
+  results.forEach((result, i) => {
+    if (result.status === 'fulfilled') {
+      console.log(`✓ ${sns[i]} 启动成功`);
+    } else {
+      console.error(`✗ ${sns[i]} 启动失败:`, result.reason);
+    }
+  });
+}
+
+// 获取所有投屏中的设备
+function getActiveCasts(): string[] {
+  const response = await fetch('http://localhost:9523/api/status');
+  const data = await response.json() as { devices: Record<string, { casting: boolean }> };
+  return Object.entries(data.devices)
+    .filter(([_, status]) => status.casting)
+    .map(([sn]) => sn);
+}
+
+// 停止所有投屏
+async function stopAllCasts() {
+  await server.stopAll();
+}
+```
+
+### 案例 4: 自定义视频流处理
 
 接收 H.264 视频流并保存到文件或转发。
 
@@ -855,40 +1023,7 @@ await stream.start({
 });
 ```
 
-### 案例 3: 多设备管理
-
-同时管理多个 HarmonyOS 设备。
-
-```typescript
-import { DeviceManager } from 'hos-scrcpy';
-
-const devices = new Map<string, DeviceManager>();
-
-// 添加设备
-devices.set('device1', new DeviceManager({
-  sn: 'FMR0223B16009134',
-  scale: 2,
-}));
-
-devices.set('device2', new DeviceManager({
-  sn: 'FMR0223B16009999',
-  scale: 1,
-}));
-
-// 批量启动
-for (const [id, device] of devices) {
-  await device.startScrcpyWithForward();
-  console.log(`设备 ${id} 已启动`);
-}
-
-// 批量停止
-for (const [id, device] of devices) {
-  await device.stopScrcpy();
-  console.log(`设备 ${id} 已停止`);
-}
-```
-
-### 案例 4: WebSocket 客户端集成
+### 案例 5: WebSocket 客户端集成
 
 使用 WebSocket 客户端连接 hos-scrcpy 服务器。
 
@@ -931,7 +1066,7 @@ ws.send(JSON.stringify({
 }));
 ```
 
-### 案例 5: 错误处理与重试
+### 案例 6: 错误处理与重试
 
 健壮的设备连接实现，包含错误处理和自动重试。
 
@@ -998,7 +1133,7 @@ try {
 }
 ```
 
-### 案例 6: React 组件集成
+### 案例 7: React 组件集成
 
 在 React 应用中集成 hos-scrcpy 控制功能。
 
