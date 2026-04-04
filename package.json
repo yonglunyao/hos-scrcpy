@@ -1,0 +1,33 @@
+{
+  "name": "hos-scrcpy",
+  "version": "1.0.0",
+  "description": "HarmonyOS screen casting server - TypeScript replacement for demoWithoutRecord.jar",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "hos-scrcpy": "dist/bin/server.js"
+  },
+  "scripts": {
+    "build": "tsc && node scripts/build.js",
+    "postinstall": "npm run build",
+    "start": "node dist/bin/server.js",
+    "ui": "node scripts/start-ui.js",
+    "dev": "ts-node src/bin/server.ts"
+  },
+  "keywords": [
+    "harmonyos",
+    "scrcpy",
+    "screen-cast",
+    "hdc"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@grpc/grpc-js": "^1.14.3",
+    "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/ws": "^8.5.10",
+    "typescript": "^5.3.3"
+  }
+}

@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HarmonyOS Screen Cast</title>
+    <script src="https://cdn.jsdelivr.net/npm/jmuxer@2.1.0/dist/jmuxer.min.js"></script>
+    <style>
+        :root {
+            --bg-primary: #f5f5f7;
+            --bg-sidebar: #ffffff;
+            --bg-tertiary: #e8e8ed;
+            --accent: #007aff;
+            --danger: #ff3b30;
+            --success: #34c759;
+            --text-primary: #1d1d1f;
+            --text-secondary: #86868b;
+            --border-color: #e5e5ea;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            height: 100vh;
+            overflow: hidden;
+        }
+        .app-container {
+            display: flex;
+            height: 100vh;
+        }
+        /* 视频区域 */
+        .screen-wrapper {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #e5e5ea;
+            overflow: hidden;
+        }
+        .screen-container {
+            width: 100%;
+            height: 100%;
+            max-width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+        #screenVideo {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: none;
+        }
+        .placeholder {
+            position: absolute;
+            text-align: center;
+            color: var(--text-secondary);
+        }
+        .placeholder-icon {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 16px;
+            opacity: 0.2;
+        }
+        /* 侧边栏 - 多列布局 */
+        .sidebar {
+            flex: 0 0 35%;
+            min-width: 500px;
+            background: #ffffff;
+            display: flex;
+            flex-direction: row;
+            gap: 1px;
+            background: var(--border-color);
+            box-shadow: -2px 0 10px rgba(0,0,0,0.05);
+        }
+        .sidebar-column {
+            display: flex;
+            flex-direction: column;
+            background: #ffffff;
+            overflow: hidden;
+        }
+        /* 设备管理列 - 较窄 */
+        .sidebar-column:nth-child(1) {
+            flex: 1;
+            min-width: 110px;
+        }
+        /* 连接状态列 - 中等 */
+        .sidebar-column:nth-child(2) {
+            flex: 1.2;
+            min-width: 130px;
+        }
+        /* 远程控制列 - 中等 */
+        .sidebar-column:nth-child(3) {
+            flex: 1;
+            min-width: 110px;
+        }
+        /* 日志列 - 最宽 */
+        .sidebar-column:nth-child(4) {
+            flex: 2;
+            min-width: 200px;
+        }
+        .sidebar-section {
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .sidebar-section:last-child {
+            border-bottom: none;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .section-title {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 10px;
+        }
+        select {
+            width: 100%;
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            background: #ffffff;
+            color: var(--text-primary);
+            font-size: 13px;
+            cursor: pointer;
+            margin-bottom: 8px;
+        }
+        .btn {
+            width: 100%;
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: none;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            margin-bottom: 6px;
+            transition: all 0.15s ease;
+        }
+        .btn-primary { background: var(--accent); color: #fff; }
+        .btn-primary:hover { background: #0051d5; }
+        .btn-danger { background: var(--danger); color: #fff; }
+        .btn-danger:hover { background: #d63127; }
+        .btn-secondary { background: #ffffff; color: var(--text-primary); border: 1px solid var(--border-color); }
+        .btn-secondary:hover { background: var(--bg-tertiary); }
+        .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .control-buttons {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 6px;
+        }
+        .btn-secondary {
+            padding: 8px 8px;
+            font-size: 11px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            margin-bottom: 0;
+        }
+        .status-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 0;
+            font-size: 12px;
+        }
+        .status-label { color: var(--text-secondary); }
+        .status-value { color: var(--text-primary); }
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 0;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--danger);
+        }
+        .status-dot.connected { background: var(--success); }
+        .log-box {
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            padding: 10px 12px;
+            font-family: 'SF Mono', 'Monaco', 'Menlo', monospace;
+            font-size: 11px;
+            overflow-y: auto;
+            color: var(--text-primary);
+            flex: 1;
+            min-height: 0;
+            border: 1px solid var(--border-color);
+        }
+        .log-entry { margin-bottom: 3px; line-height: 1.4; }
+        .log-entry.error { color: var(--danger); }
+        .log-entry.success { color: var(--success); }
+        .log-entry.info { color: var(--accent); }
+        .touch-indicator {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: rgba(0, 212, 255, 0.6);
+            border: 2px solid var(--accent);
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            animation: touch-ripple 0.3s ease-out;
+        }
+        @keyframes touch-ripple {
+            0% { transform: translate(-50%, -50%) scale(1); opacity: 0.6; }
+            100% { transform: translate(-50%, -50%) scale(2); opacity: 0; }
+        }
+        #screenVideo { cursor: pointer; }
+        @media (max-width: 900px) {
+            .sidebar { display: none; }
+            .screen-container { max-width: 100%; }
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <!-- 视频区域 -->
+        <div class="screen-wrapper">
+            <div class="screen-container">
+                <video id="screenVideo" autoplay muted playsinline></video>
+                <div id="touchIndicator" class="touch-indicator" style="display: none;"></div>
+                <div class="placeholder" id="placeholder">
+                    <svg class="placeholder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <rect x="4" y="2" width="16" height="20" rx="3" ry="3"/>
+                        <circle cx="12" cy="17" r="1"/>
+                    </svg>
+                    <p>选择设备开始投屏</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 侧边栏 - 多列布局 -->
+        <div class="sidebar">
+            <!-- 列1: 设备管理 -->
+            <div class="sidebar-column">
+                <div class="sidebar-section">
+                    <div class="section-title">设备管理</div>
+                    <select id="deviceSelect"><option value="">加载中...</option></select>
+                    <button class="btn btn-primary" id="startBtn" onclick="startCasting()">▶ 开始投屏</button>
+                    <button class="btn btn-danger" id="stopBtn" onclick="stopCasting()" disabled>■ 停止</button>
+                    <button class="btn btn-secondary" id="refreshBtn" onclick="refreshDevices()">🔄 刷新设备</button>
+                </div>
+            </div>
+
+            <!-- 列2: 连接状态 -->
+            <div class="sidebar-column">
+                <div class="sidebar-section">
+                    <div class="section-title">连接状态</div>
+                    <div class="status-indicator">
+                        <div class="status-dot" id="statusDot"></div>
+                        <span id="statusText">未连接</span>
+                    </div>
+                    <div class="status-row"><span class="status-label">设备</span><span class="status-value" id="deviceSN">-</span></div>
+                    <div class="status-row"><span class="status-label">分辨率</span><span class="status-value" id="resolution">-</span></div>
+                    <div class="status-row"><span class="status-label">帧数</span><span class="status-value" id="frameCount">0</span></div>
+                    <div class="status-row"><span class="status-label">延迟</span><span class="status-value" id="bufferDelay">-</span></div>
+                    <div class="status-row"><span class="status-label">码率</span><span class="status-value" id="bitrate">-</span></div>
+                    <div class="status-row"><span class="status-label">时长</span><span class="status-value" id="uptime">00:00</span></div>
+                </div>
+            </div>
+
+            <!-- 列3: 远程控制 -->
+            <div class="sidebar-column">
+                <div class="sidebar-section">
+                    <div class="section-title">远程控制</div>
+                    <div class="control-buttons">
+                        <button class="btn btn-secondary" onclick="sendKeyEvent('HOME')">🏠 HOME</button>
+                        <button class="btn btn-secondary" onclick="sendKeyEvent('BACK')">← BACK</button>
+                        <button class="btn btn-secondary" onclick="sendKeyEvent('VOLUME_UP')">🔊 音量+</button>
+                        <button class="btn btn-secondary" onclick="sendKeyEvent('VOLUME_DOWN')">🔉 音量-</button>
+                        <button class="btn btn-secondary" onclick="sendKeyEvent('MENU')">☰ 菜单</button>
+                        <button class="btn btn-secondary" onclick="sendKeyEvent('POWER')">⏻ 电源</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 列4: 日志 -->
+            <div class="sidebar-column">
+                <div class="sidebar-section">
+                    <div class="section-title">运行日志</div>
+                    <div class="log-box" id="logBox"><div class="log-entry">等待连接...</div></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let casting = false;
+        let frameCount = 0;
+        let totalBytes = 0;
+        let startTime = 0;
+        let uptimeTimer = null;
+        let currentDevice = '';
+        let jmuxer = null;
+        let bufferCheckInterval = null;
+        let bitrateInterval = null;
+        let videoWidth = 0;
+        let videoHeight = 0;
+        let screenScale = 1;
+        let touchInProgress = false;
+        let touchStartPos = { x: 0, y: 0 };
+        let lastTouchPos = { x: 0, y: 0 };
+        let currentVideoCoords = { x: 0, y: 0 };
+        let mouseDownPos = null;
+
+        function log(message, type = 'info') {
+            const logBox = document.getElementById('logBox');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logBox.appendChild(entry);
+            logBox.scrollTop = logBox.scrollHeight;
+        }
+
+        async function loadDevices() {
+            try {
+                const response = await fetch('/api/devices');
+                const data = await response.json();
+                const select = document.getElementById('deviceSelect');
+                select.innerHTML = '';
+                if (data.devices && data.devices.length > 0) {
+                    data.devices.forEach(device => {
+                        const option = document.createElement('option');
+                        option.value = device;
+                        option.textContent = device;
+                        select.appendChild(option);
+                    });
+                    updateStatus('connected', `已连接 (${data.devices.length} 台)`);
+                    log(`找到 ${data.devices.length} 台设备`, 'success');
+                } else {
+                    select.innerHTML = '<option value="">未找到设备</option>';
+                    updateStatus('disconnected', '未找到设备');
+                }
+            } catch (e) {
+                select.innerHTML = '<option>加载失败</option>';
+                updateStatus('disconnected', '连接失败');
+                log(`加载设备失败: ${e.message}`, 'error');
+            }
+        }
+
+        function refreshDevices() {
+            loadDevices();
+        }
+
+        function updateStatus(state, text) {
+            const dot = document.getElementById('statusDot');
+            document.getElementById('statusText').textContent = text;
+            dot.className = 'status-dot ' + (state === 'connected' ? 'connected' : '');
+        }
+
+        function startCasting() {
+            const device = document.getElementById('deviceSelect').value;
+            if (!device) { alert('请先选择设备'); return; }
+            currentDevice = device;
+            casting = true;
+            frameCount = 0;
+            startTime = Date.now();
+            document.getElementById('startBtn').disabled = true;
+            document.getElementById('stopBtn').disabled = false;
+            document.getElementById('screenVideo').style.display = 'block';
+            document.getElementById('placeholder').style.display = 'none';
+            document.getElementById('deviceSN').textContent = device.substring(0, 12) + '...';
+            updateStatus('connected', '连接中...');
+            log(`开始投屏: ${device}`, 'info');
+            initJMuxer();
+            connectWebSocket();
+            startUptimeCounter();
+        }
+
+        function initJMuxer() {
+            if (jmuxer) jmuxer.destroy();
+            jmuxer = new JMuxer({
+                node: 'screenVideo',
+                mode: 'video',
+                flushingTime: 10,       // 极低延迟 - 10ms 刷新
+                fps: 60,               // 60 fps 匹配设备
+                maxDelay: 50,          // 最大缓冲 50ms
+                debug: false,
+                clearBuffer: true,     // 清空缓冲
+                onReady: function() {
+                    log('JMuxer MSE 就绪', 'success');
+                    const video = document.getElementById('screenVideo');
+                    video.playbackRate = 2.0;  // 初始高速追帧
+                    video.addEventListener('loadedmetadata', () => log('视频元数据已加载', 'info'));
+                    video.play().then(() => {
+                        log('视频播放已开始', 'success');
+                        setupTouchControl();
+                    }).catch(e => log('自动播放失败: ' + e.message, 'error'));
+
+                    // 超激进缓冲管理 - 优先低延迟
+                    bufferCheckInterval = setInterval(() => {
+                        if (!casting || video.readyState < 2 || video.buffered.length === 0) return;
+                        const bufferedEnd = video.buffered.end(video.buffered.length - 1);
+                        const currentTime = video.currentTime;
+                        const bufferDelay = bufferedEnd - currentTime;
+                        document.getElementById('bufferDelay').textContent = (bufferDelay * 1000).toFixed(0) + 'ms';
+
+                        // 超激进速率调整 - 快速丢帧
+                        if (bufferDelay > 1.0) {
+                            video.playbackRate = 4.0;  // 极速追帧
+                        } else if (bufferDelay > 0.5) {
+                            video.playbackRate = 3.0;
+                        } else if (bufferDelay > 0.2) {
+                            video.playbackRate = 2.0;
+                        } else if (bufferDelay > 0.05) {
+                            video.playbackRate = 1.5;
+                        } else {
+                            video.playbackRate = 1.0;
+                        }
+                    }, 100);
+                }
+            });
+            log('JMuxer 已初始化', 'success');
+        }
+
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws/screen/${currentDevice}`;
+            log(`连接 WebSocket: ${wsUrl}`, 'info');
+            ws = new WebSocket(wsUrl);
+            ws.binaryType = 'arraybuffer';
+            ws.onopen = () => {
+                log('WebSocket 已连接', 'success');
+                updateStatus('connected', '投屏中');
+                ws.send(JSON.stringify({ type: 'screen', sn: currentDevice }));
+            };
+            ws.onmessage = (event) => {
+                if (typeof event.data === 'string') {
+                    try {
+                        const msg = JSON.parse(event.data);
+                        if (msg.type === 'screenConfig' && msg.scale) {
+                            screenScale = msg.scale;
+                            log(`屏幕缩放倍率: ${screenScale}x`, 'info');
+                        }
+                    } catch {}
+                    return;
+                }
+                if (event.data instanceof ArrayBuffer) {
+                    const data = new Uint8Array(event.data);
+                    frameCount++;
+                    totalBytes += data.length;
+                    document.getElementById('frameCount').textContent = frameCount;
+                    if (frameCount % 30 === 0) log(`已接收 ${frameCount} 帧 (${data.length} bytes)`, 'info');
+                    if (jmuxer) {
+                        try { jmuxer.feed({ video: data }); }
+                        catch (e) { log(`JMuxer feed error: ${e.message}`, 'error'); }
+                    }
+                }
+            };
+            ws.onerror = () => { log('WebSocket 错误', 'error'); updateStatus('disconnected', '连接错误'); };
+            ws.onclose = () => { if (casting) stopCasting(); };
+        }
+
+        function stopCasting() {
+            casting = false;
+            if (ws) { ws.close(); ws = null; }
+            if (jmuxer) { jmuxer.destroy(); jmuxer = null; }
+            if (bufferCheckInterval) { clearInterval(bufferCheckInterval); bufferCheckInterval = null; }
+            if (uptimeTimer) { clearInterval(uptimeTimer); uptimeTimer = null; }
+            if (bitrateInterval) { clearInterval(bitrateInterval); bitrateInterval = null; }
+            totalBytes = 0;
+            document.getElementById('bitrate').textContent = '-';
+            document.getElementById('resolution').textContent = '-';
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+            document.getElementById('screenVideo').style.display = 'none';
+            document.getElementById('placeholder').style.display = 'block';
+            updateStatus('disconnected', '已停止');
+            log('投屏已停止', 'info');
+        }
+
+        function startUptimeCounter() {
+            if (uptimeTimer) clearInterval(uptimeTimer);
+            uptimeTimer = setInterval(() => {
+                if (!casting) return;
+                const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                const mins = Math.floor(elapsed / 60).toString().padStart(2, '0');
+                const secs = (elapsed % 60).toString().padStart(2, '0');
+                document.getElementById('uptime').textContent = `${mins}:${secs}`;
+            }, 1000);
+
+            // 码率计算 (每秒更新)
+            if (bitrateInterval) clearInterval(bitrateInterval);
+            bitrateInterval = setInterval(() => {
+                if (!casting) return;
+                const elapsed = (Date.now() - startTime) / 1000;
+                if (elapsed > 0) {
+                    const bps = (totalBytes * 8) / elapsed;
+                    const kbps = (bps / 1024).toFixed(1);
+                    document.getElementById('bitrate').textContent = kbps + ' Kbps';
+                }
+            }, 1000);
+        }
+
+        function sendKeyEvent(key) {
+            if (!ws || !casting) { log('请先开始投屏', 'error'); return; }
+            ws.send(JSON.stringify({ type: 'keyCode', sn: currentDevice, message: { key } }));
+            log(`按键: ${key}`, 'info');
+        }
+
+        function sendTouchEvent(eventType, x, y) {
+            if (!ws || !casting) return;
+            ws.send(JSON.stringify({ type: 'touchEvent', sn: currentDevice, message: { event: eventType, x: Math.round(x), y: Math.round(y) } }));
+        }
+
+        function getVideoCoords(clientX, clientY, video) {
+            const rect = video.getBoundingClientRect();
+
+            // 计算视频在元素中的实际显示区域（考虑 object-fit: contain）
+            const videoAspect = (video.videoWidth || videoWidth) / (video.videoHeight || videoHeight);
+            const rectAspect = rect.width / rect.height;
+
+            let renderWidth, renderHeight, offsetX, offsetY;
+
+            if (videoAspect > rectAspect) {
+                // 视频更宽，上下有黑边
+                renderWidth = rect.width;
+                renderHeight = rect.width / videoAspect;
+                offsetX = 0;
+                offsetY = (rect.height - renderHeight) / 2;
+            } else {
+                // 视频更高，左右有黑边
+                renderWidth = rect.height * videoAspect;
+                renderHeight = rect.height;
+                offsetX = (rect.width - renderWidth) / 2;
+                offsetY = 0;
+            }
+
+            // 计算点击位置相对于视频渲染区域的位置
+            const relX = clientX - rect.left - offsetX;
+            const relY = clientY - rect.top - offsetY;
+
+            // 检查是否在视频渲染区域内
+            if (relX < 0 || relX > renderWidth || relY < 0 || relY > renderHeight) {
+                return null;
+            }
+
+            const actualWidth = video.videoWidth || videoWidth;
+            const actualHeight = video.videoHeight || videoHeight;
+            if (actualWidth === 0 || actualHeight === 0) return null;
+
+            // 映射到设备屏幕坐标（视频分辨率 * scale = 设备真实分辨率）
+            const x = (relX / renderWidth) * actualWidth * screenScale;
+            const y = (relY / renderHeight) * actualHeight * screenScale;
+
+            return { x: x, y: y, displayX: relX, displayY: relY };
+        }
+
+        function setupTouchControl() {
+            const video = document.getElementById('screenVideo');
+            const updateVideoSize = () => {
+                videoWidth = video.videoWidth;
+                videoHeight = video.videoHeight;
+                log(`视频分辨率: ${videoWidth}x${videoHeight}`, 'info');
+                document.getElementById('resolution').textContent = `${videoWidth}×${videoHeight}`;
+            };
+            if (video.videoWidth > 0) updateVideoSize();
+            video.addEventListener('loadedmetadata', updateVideoSize);
+            video.addEventListener('touchstart', handleTouchStart, { passive: false });
+            video.addEventListener('touchmove', handleTouchMove, { passive: false });
+            video.addEventListener('touchend', handleTouchEnd, { passive: false });
+            video.addEventListener('mousedown', handleMouseDown);
+        }
+
+        function handleTouchStart(event) {
+            event.preventDefault();
+            const video = event.target;
+            const coords = getVideoCoords(event.touches[0].clientX, event.touches[0].clientY, video);
+            if (!coords) return;
+            touchInProgress = true;
+            touchStartPos = { x: coords.x, y: coords.y };
+            lastTouchPos = { x: coords.x, y: coords.y };
+            currentVideoCoords = { x: coords.x, y: coords.y };
+            sendTouchEvent('down', coords.x, coords.y);
+        }
+
+        function handleTouchMove(event) {
+            event.preventDefault();
+            if (!touchInProgress) return;
+            const video = event.target;
+            const coords = getVideoCoords(event.touches[0].clientX, event.touches[0].clientY, video);
+            if (!coords) return;
+            currentVideoCoords = { x: coords.x, y: coords.y };
+            if (Math.abs(coords.x - touchStartPos.x) > 5 || Math.abs(coords.y - touchStartPos.y) > 5) {
+                const moveDelta = Math.sqrt(Math.pow(coords.x - lastTouchPos.x, 2) + Math.pow(coords.y - lastTouchPos.y, 2));
+                if (moveDelta > 10) {
+                    sendTouchEvent('move', coords.x, coords.y);
+                    lastTouchPos = { x: coords.x, y: coords.y };
+                }
+            }
+        }
+
+        function handleTouchEnd(event) {
+            event.preventDefault();
+            if (!touchInProgress) return;
+            sendTouchEvent('up', currentVideoCoords.x, currentVideoCoords.y);
+            const deltaX = currentVideoCoords.x - touchStartPos.x;
+            const deltaY = currentVideoCoords.y - touchStartPos.y;
+            const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+            if (distance > 50) {
+                const direction = Math.abs(deltaX) > Math.abs(deltaY) ? (deltaX > 0 ? '右滑' : '左滑') : (deltaY > 0 ? '下滑' : '上滑');
+                log(`${direction}: ${Math.round(distance)}px`, 'info');
+            }
+            touchInProgress = false;
+        }
+
+        function handleMouseDown(event) {
+            event.preventDefault();
+            const video = event.target;
+            const coords = getVideoCoords(event.clientX, event.clientY, video);
+            if (!coords) return;
+            mouseDownPos = { x: coords.x, y: coords.y };
+            let lastMovePos = { x: coords.x, y: coords.y };
+            sendTouchEvent('down', coords.x, coords.y);
+            const handleMouseMove = (e) => {
+                const newCoords = getVideoCoords(e.clientX, e.clientY, video);
+                if (!newCoords) return;
+                const moveDelta = Math.sqrt(Math.pow(newCoords.x - lastMovePos.x, 2) + Math.pow(newCoords.y - lastMovePos.y, 2));
+                if (moveDelta > 5) {
+                    sendTouchEvent('move', newCoords.x, newCoords.y);
+                    lastMovePos = { x: newCoords.x, y: newCoords.y };
+                }
+            };
+            const handleMouseUp = (e) => {
+                const coords = getVideoCoords(e.clientX, e.clientY, video);
+                if (coords) {
+                    sendTouchEvent('up', coords.x, coords.y);
+                    const deltaX = coords.x - mouseDownPos.x;
+                    const deltaY = coords.y - mouseDownPos.y;
+                    const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+                    if (distance > 50) {
+                        const direction = Math.abs(deltaX) > Math.abs(deltaY) ? (deltaX > 0 ? '右滑' : '左滑') : (deltaY > 0 ? '下滑' : '上滑');
+                        log(`${direction}: ${Math.round(distance)}px`, 'info');
+                    }
+                }
+                document.removeEventListener('mousemove', handleMouseMove);
+                document.removeEventListener('mouseup', handleMouseUp);
+                mouseDownPos = null;
+            };
+            document.addEventListener('mousemove', handleMouseMove);
+            document.addEventListener('mouseup', handleMouseUp);
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (!casting) return;
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+            const keyMap = { 'Escape': 'BACK', 'Home': 'HOME', 'ArrowUp': 'VOLUME_UP', 'ArrowDown': 'VOLUME_DOWN', 'p': 'POWER', 'P': 'POWER' };
+            if (keyMap[e.key]) sendKeyEvent(keyMap[e.key]);
+        });
+
+        window.addEventListener('load', () => {
+            if (typeof JMuxer === 'undefined') log('JMuxer 库加载失败', 'error');
+            else log('JMuxer 库已就绪', 'success');
+            loadDevices();
+            setInterval(loadDevices, 5000);
+        });
+
+        window.addEventListener('beforeunload', () => {
+            if (ws) ws.close();
+            if (jmuxer) jmuxer.destroy();
+        });
+    </script>
+</body>
+</html>
