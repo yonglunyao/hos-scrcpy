@@ -4,6 +4,28 @@ import * as path from 'path';
 import { ChildProcess } from 'child_process';
 import { HdcClient } from './hdc';
 import { PortForwardManager } from './port-forward';
+import type { ScrcpyConfig, ScreenSize } from '../types';
+import { ScrcpyStartupError } from '../errors';
+import {
+  DEFAULT_HDC_PORT,
+  DEFAULT_SCRCPY_PORT,
+  DEFAULT_SCALE,
+  DEFAULT_FRAME_RATE,
+  DEFAULT_BIT_RATE_MBPS,
+  DEFAULT_SCREEN_ID,
+  DEFAULT_I_FRAME_INTERVAL_MS,
+  DEFAULT_REPEAT_INTERVAL_MS,
+  DEFAULT_IMAGE_SCALE_SIZE,
+  UITEM_PIDS_TIMEOUT_SEC,
+  UITEM_START_TIMEOUT_SEC,
+  SCRPCY_PIDS_TIMEOUT_SEC,
+  FILE_CHECK_TIMEOUT_SEC,
+  FILE_DELETE_TIMEOUT_SEC,
+  SCRPCY_KILL_DELAY_MS,
+  SCRPCY_START_RETRY_DELAY_MS,
+  UITEST_SEC_VERSION_THRESHOLD,
+  AGENT_VERSION_THRESHOLD,
+} from '../constants';
 
 // SO 文件名列表（与原 JAR 一致）
 const SCRCPY_SO_LIST = [
@@ -30,8 +52,6 @@ const RECORDER_SEC_SO_LIST = [
   'libscrcpy_server-6.2-20250926.so',
 ];
 
-const UITEST_SPLIT_VERSION = '5.1.1.3';
-
 const AGENT_NAMES: Record<string, string> = {
   x86_64: 'uitest_agent_x86_1.1.9.so',
   old: 'uitest_agent_1.1.3.so',
@@ -46,30 +66,6 @@ const CMD_START_SCRCPY = '/system/bin/uitest start-daemon singleness --extension
 const CMD_START_RECORDER = '/system/bin/uitest start-daemon singleness --extension-name libscreen_recorder.z.so -p %d -m 1 -screenId %s';
 const CMD_UITEST_VERSION = '/system/bin/uitest --version';
 const CMD_DELETE = 'rm /data/local/tmp/%s';
-
-export interface ScrcpyConfig {
-  sn: string;
-  ip?: string;
-  hdcPath?: string;
-  hdcPort?: number;
-  scale?: number;
-  frameRate?: number;
-  bitRate?: number; // in Mbps
-  port?: number; // device-side scrcpy port
-  screenId?: number;
-  windowsId?: string;
-  appPid?: string;
-  encoderType?: string;
-  iFrameInterval?: number;
-  repeatInterval?: number;
-  extensionName?: string;
-  imageScaleSize?: number;
-}
-
-export interface ScreenSize {
-  width: number;
-  height: number;
-}
 
 /**
  * 设备管理 — SO 推送、版本匹配、scrcpy/uitest 启停
@@ -88,19 +84,19 @@ export class DeviceManager {
       hdcPath: config.hdcPath || 'hdc',
       ip: config.ip || '127.0.0.1',
       sn: config.sn,
-      port: config.hdcPort || 8710,
+      port: config.hdcPort || DEFAULT_HDC_PORT,
     });
     this.portForward = new PortForwardManager(this.hdc);
     this.config = {
       scale: config.scale ?? 1,
       frameRate: config.frameRate ?? 30,      // 默认 30fps 降低延迟
       bitRate: config.bitRate ?? 4,           // 默认 4Mbps
-      port: config.port ?? 5000,
-      screenId: config.screenId ?? 0,
-      iFrameInterval: config.iFrameInterval ?? 500,   // 更频繁的关键帧
-      repeatInterval: config.repeatInterval ?? 33,     // 30fps
+      port: config.port ?? DEFAULT_SCRCPY_PORT,
+      screenId: config.screenId ?? DEFAULT_SCREEN_ID,
+      iFrameInterval: config.iFrameInterval ?? DEFAULT_I_FRAME_INTERVAL_MS,   // 更频繁的关键帧
+      repeatInterval: config.repeatInterval ?? DEFAULT_REPEAT_INTERVAL_MS,     // 30fps
       extensionName: config.extensionName || 'libscreen_casting.z.so',
-      imageScaleSize: config.imageScaleSize ?? 0.99,
+      imageScaleSize: config.imageScaleSize ?? DEFAULT_IMAGE_SCALE_SIZE,
     };
   }
 
@@ -125,7 +121,7 @@ export class DeviceManager {
    */
   async ensureBasicUitest(): Promise<void> {
     // 检查是否有基础 uitest（不含 extension-name 的）
-    const result = await this.hdc.shell('ps -ef | grep uitest', 5);
+    const result = await this.hdc.shell('ps -ef | grep uitest', UITEM_PIDS_TIMEOUT_SEC);
     const hasBasic = result.split(/\r?\n/).some(
       line => line.includes('uitest') && line.includes('singleness') && !line.includes('extension-name') && !line.includes('grep')
     );
@@ -135,7 +131,7 @@ export class DeviceManager {
     }
     // 用 shell 脚本启动 nohup uitest
     console.log('[DeviceManager] starting basic uitest...');
-    await this.hdc.shell('nohup /system/bin/uitest start-daemon singleness > /dev/null 2>&1 &', 5);
+    await this.hdc.shell('nohup /system/bin/uitest start-daemon singleness > /dev/null 2>&1 &', UITEM_START_TIMEOUT_SEC);
     await new Promise(r => setTimeout(r, 2000));
   }
 
@@ -173,7 +169,7 @@ export class DeviceManager {
    */
   async detectUseSecSo(): Promise<boolean> {
     const version = await this.getUitestVersion();
-    return this.compareVersion('6.0.2.1', version) < 0;
+    return this.compareVersion(UITEST_SEC_VERSION_THRESHOLD, version) < 0;
   }
 
   /**
@@ -182,7 +178,7 @@ export class DeviceManager {
   async getDeviceSoMd5(soName?: string): Promise<string> {
     const name = soName || this.config.extensionName;
     const devicePath = sprintf(DEVICE_EXTENSION_PATH, name);
-    const result = await this.hdc.shell(`md5sum ${devicePath}`, 8);
+    const result = await this.hdc.shell(`md5sum ${devicePath}`, SCRPCY_PIDS_TIMEOUT_SEC);
     const match = result.match(/^([a-fA-F0-9]+)/);
     return match ? match[1]!.toLowerCase() : '';
   }
@@ -206,7 +202,7 @@ export class DeviceManager {
    * 与 Java 版一致的匹配逻辑：单次 ps + grep，字符串匹配即可
    */
   async getScrcpyPids(): Promise<string[]> {
-    const result = await this.hdc.shell('"ps -ef | grep singleness"', 8);
+    const result = await this.hdc.shell('"ps -ef | grep singleness"', SCRPCY_PIDS_TIMEOUT_SEC);
     const pids: string[] = [];
 
     for (const line of result.split(/\r?\n/)) {
@@ -229,7 +225,7 @@ export class DeviceManager {
    * 获取 recorder PIDs
    */
   async getRecorderPids(): Promise<string[]> {
-    const result = await this.hdc.shell('ps -ef | grep singleness', 8);
+    const result = await this.hdc.shell('ps -ef | grep singleness', SCRPCY_PIDS_TIMEOUT_SEC);
     const pids: string[] = [];
     for (const line of result.split(/\r?\n/)) {
       if (
@@ -277,7 +273,7 @@ export class DeviceManager {
 
     // 检查设备上是否已有正确文件
     const localMd5 = this.getLocalSoMd5(soName);
-    const checkResult = await this.hdc.shell(`file ${dest}`, 3);
+    const checkResult = await this.hdc.shell(`file ${dest}`, FILE_CHECK_TIMEOUT_SEC);
     if (checkResult.includes('ELF')) {
       // SO 文件存在且是 ELF，检查 MD5
       const md5Result = await this.hdc.shell(`md5sum ${dest}`, 5);
@@ -289,7 +285,7 @@ export class DeviceManager {
     }
 
     // 删除旧文件/目录
-    await this.hdc.shell(`rm -rf ${dest}`, 5);
+    await this.hdc.shell(`rm -rf ${dest}`, FILE_DELETE_TIMEOUT_SEC);
 
     // 使用 rename 方式推送（hdc file send 直接发送 .so 可能创建目录）
     const tmpPath = '/data/local/tmp/_scrcpy_tmp.so';
@@ -339,7 +335,7 @@ export class DeviceManager {
    */
   async startScrcpyWithForward(): Promise<number> {
     const uitestVersion = await this.getUitestVersion();
-    this.isUseSecSo = this.compareVersion('6.0.2.1', uitestVersion) < 0;
+    this.isUseSecSo = this.compareVersion(UITEST_SEC_VERSION_THRESHOLD, uitestVersion) < 0;
 
     const soList = this.isUseSecSo ? SCRCPY_SEC_SO_LIST : SCRCPY_SO_LIST;
 
@@ -349,11 +345,11 @@ export class DeviceManager {
 
     // 杀掉残留的 scrcpy 进程，确保干净启动
     await this.killScrcpy();
-    await new Promise(r => setTimeout(r, 500));
+    await new Promise(r => setTimeout(r, SCRPCY_KILL_DELAY_MS));
 
     // 尝试直接启动（设备上可能已有正确版本的 SO）
     await this.startScrcpy();
-    await new Promise(r => setTimeout(r, 1000));
+    await new Promise(r => setTimeout(r, SCRPCY_START_RETRY_DELAY_MS));
     let pids = await this.getScrcpyPids();
     console.log(`[DeviceManager] scrcpy pids after start: ${pids.length}`);
 
@@ -382,7 +378,7 @@ export class DeviceManager {
         const assetSoName = soName.startsWith('libscrcpy_server') ? soName : soName;
         await this.pushSo(assetSoName);
         await this.startScrcpy();
-        await new Promise(r => setTimeout(r, 1000));
+        await new Promise(r => setTimeout(r, SCRPCY_START_RETRY_DELAY_MS));
         pids = await this.getScrcpyPids();
         if (pids.length > 0) {
           started = true;
@@ -391,7 +387,7 @@ export class DeviceManager {
       }
 
       if (!started) {
-        throw new Error('Failed to start scrcpy server (no SO version worked)');
+        throw new ScrcpyStartupError('no SO version worked');
       }
     }
 
@@ -468,7 +464,7 @@ export class DeviceManager {
     const match = version.match(/#(\d{1,3}\.\d{1,3}\.\d{1,3})/);
     const deviceLink = match ? match[1]! : '0.0.0';
     console.log(`[DeviceManager] useSecConnect: deviceLink=${deviceLink}, useSec=${this.compareVersion('1.2.0', deviceLink) <= 0}`);
-    return this.compareVersion('1.2.0', deviceLink) <= 0;
+    return this.compareVersion(AGENT_VERSION_THRESHOLD, deviceLink) <= 0;
   }
 }
 
@@ -479,3 +475,6 @@ export function sprintf(fmt: string, ...args: (string | number)[]): string {
     return match === '%d' ? String(val) : String(val!);
   });
 }
+
+// Re-export types for backward compatibility
+export type { ScrcpyConfig, ScreenSize } from '../types';

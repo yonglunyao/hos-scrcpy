@@ -1,6 +1,12 @@
 import * as http2 from 'http2';
 import { DeviceManager } from '../device/manager';
 import { decodeReplyMessage, decodeGrpcFrame } from './protobuf';
+import { ConnectionTimeoutError, ScrcpyStartupError } from '../errors';
+import {
+  HTTP2_CONNECT_TIMEOUT_MS,
+  HTTP2_INITIAL_WINDOW_SIZE,
+  GRPC_MAX_RECEIVE_MESSAGE_LENGTH,
+} from '../constants';
 
 type DataCallback = (data: Buffer) => void;
 type ReadyCallback = () => void;
@@ -45,7 +51,7 @@ export class DirectScrcpyStream {
 
     const forwardPort = this.device.getScrcpyForwardPort();
     if (forwardPort === 0) {
-      throw new Error('Scrcpy forward port not set');
+      throw new ScrcpyStartupError('forward port not set');
     }
 
     const target = `http://127.0.0.1:${forwardPort}`;
@@ -55,7 +61,7 @@ export class DirectScrcpyStream {
     this.session = http2.connect(target, {
       settings: {
         enablePush: false,
-        initialWindowSize: 16 * 1024 * 1024, // 16MB for large video frames
+        initialWindowSize: HTTP2_INITIAL_WINDOW_SIZE, // 16MB for large video frames
       },
     });
 
@@ -71,7 +77,7 @@ export class DirectScrcpyStream {
     });
 
     await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('HTTP/2 connect timeout')), 10000);
+      const timeout = setTimeout(() => reject(new ConnectionTimeoutError('HTTP/2 connect', HTTP2_CONNECT_TIMEOUT_MS)), HTTP2_CONNECT_TIMEOUT_MS);
       this.session!.once('connect', () => {
         clearTimeout(timeout);
         console.log('[DirectScrcpy] HTTP/2 connected');
@@ -93,7 +99,7 @@ export class DirectScrcpyStream {
       'te': 'trailers',
       'grpc-encoding': 'identity',
       'user-agent': 'hos-scrcpy-ts/1.0',
-      'grpc.max_receive_message_length': String(104857600),
+      'grpc.max_receive_message_length': String(GRPC_MAX_RECEIVE_MESSAGE_LENGTH),
     });
 
     // 3. 发送空 gRPC 请求帧: 1字节压缩标志(0) + 4字节长度(0)

@@ -1,6 +1,6 @@
-export { HosScrcpyServer, ServerConfig } from './server';
-export { DeviceManager, ScrcpyConfig, ScreenSize } from './device/manager';
-export { HdcClient, HdcOptions } from './device/hdc';
+export { HosScrcpyServer } from './server';
+export { DeviceManager } from './device/manager';
+export { HdcClient } from './device/hdc';
 export { PortForwardManager } from './device/port-forward';
 export { UitestServer } from './input/uitest';
 export { DirectScrcpyStream } from './capture/direct-scrcpy';
@@ -14,3 +14,6 @@ export {
   ReplyMessage,
   ReplyEndMessage,
 } from './capture/protobuf';
+
+// Re-export types from centralized types module
+export type { ServerConfig, ScrcpyConfig, ScreenSize, HdcOptions } from './types';

@@ -1,8 +1,17 @@
 import * as net from 'net';
 import { DeviceManager } from '../device/manager';
-
-const AGENT_SERVER_PORT = 8012;
-const UITEST_SPLIT_VERSION = '5.1.1.3';
+import { DeviceNotFoundError } from '../errors';
+import {
+  AGENT_SERVER_PORT,
+  UITEST_SPLIT_VERSION,
+  UITEST_SEC_VERSION_THRESHOLD,
+  UITEM_START_DELAY_MS,
+  SCRPCY_PIDS_TIMEOUT_SEC,
+  UITEM_TYPE_CHECK_TIMEOUT_SEC,
+  UITEM_START_TIMEOUT_SEC,
+  UITEST_LAYOUT_REQUEST_TIMEOUT_MS,
+  AGENT_VERSION_THRESHOLD,
+} from '../constants';
 
 const AGENT_NAMES: Record<string, string> = {
   x86_64: 'uitest_agent_x86_1.1.9.so',
@@ -40,7 +49,7 @@ export class UitestServer {
    */
   async start(): Promise<void> {
     if (!await this.device.isOnline()) {
-      throw new Error(`Device not found: ${this.device.getSn()}`);
+      throw new DeviceNotFoundError(this.device.getSn());
     }
 
     // 如果已经在运行，先停止
@@ -226,8 +235,8 @@ export class UitestServer {
     }
 
     // 启动新的基础 uitest daemon
-    await this.device.shell('/system/bin/uitest start-daemon singleness &', 5);
-    await new Promise(r => setTimeout(r, 1000));
+    await this.device.shell('/system/bin/uitest start-daemon singleness &', UITEM_START_TIMEOUT_SEC);
+    await new Promise(r => setTimeout(r, UITEM_START_DELAY_MS));
 
     const pids2 = await this.getUitestPids();
     if (pids2.length === 0) {
@@ -236,7 +245,7 @@ export class UitestServer {
   }
 
   private async getUitestPids(): Promise<string[]> {
-    const result = await this.device.shell('ps -ef | grep singleness', 8);
+    const result = await this.device.shell('ps -ef | grep singleness', SCRPCY_PIDS_TIMEOUT_SEC);
     const pids: string[] = [];
     for (const line of result.split(/\r?\n/)) {
       if (
@@ -254,7 +263,7 @@ export class UitestServer {
 
   private async initSoResource(): Promise<void> {
     // 检测设备类型和 uitest 版本来选择 agent SO
-    const typeResult = await this.device.shell('file /system/bin/uitest', 5);
+    const typeResult = await this.device.shell('file /system/bin/uitest', UITEM_TYPE_CHECK_TIMEOUT_SEC);
     const versionResult = await this.device.getUitestVersion();
 
     let agentName: string;
@@ -264,7 +273,7 @@ export class UitestServer {
       agentName = AGENT_NAMES.old;
     } else if (this.device.compareVersion(UITEST_SPLIT_VERSION, versionResult) === 0) {
       agentName = AGENT_NAMES.split;
-    } else if (this.device.compareVersion('6.0.2.1', versionResult) >= 0) {
+    } else if (this.device.compareVersion(UITEST_SEC_VERSION_THRESHOLD, versionResult) >= 0) {
       agentName = AGENT_NAMES.normal;
     } else {
       agentName = AGENT_NAMES.sec;
@@ -478,7 +487,7 @@ export class UitestServer {
           this.layoutSocket!.off('data', onData);
           resolve('');
         }
-      }, 10000);
+      }, UITEST_LAYOUT_REQUEST_TIMEOUT_MS);
     });
   }
 }

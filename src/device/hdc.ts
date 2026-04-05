@@ -1,11 +1,12 @@
 import { spawn, SpawnOptions, ChildProcess } from 'child_process';
-
-export interface HdcOptions {
-  hdcPath: string;
-  ip?: string;
-  sn: string;
-  port?: number; // hdc port, default 8710
-}
+import type { HdcOptions } from '../types';
+import {
+  DEFAULT_HDC_PORT,
+  HDC_EXEC_DEFAULT_TIMEOUT_SEC,
+  HDC_SHELL_DEFAULT_TIMEOUT_SEC,
+  HDC_PUSH_FILE_TIMEOUT_SEC,
+  HDC_PULL_FILE_TIMEOUT_SEC,
+} from '../constants';
 
 /**
  * HDC CLI 封装 — HarmonyOS Device Connector 命令行工具
@@ -20,14 +21,14 @@ export class HdcClient {
     this.hdcPath = opts.hdcPath;
     this.ip = opts.ip || '127.0.0.1';
     this.sn = opts.sn;
-    this.port = opts.port || 8710;
+    this.port = opts.port || DEFAULT_HDC_PORT;
   }
 
   private buildArgs(extraArgs: string): string[] {
     return [this.hdcPath, ...extraArgs.split(' ')];
   }
 
-  async exec(command: string, timeoutSec = 8): Promise<string> {
+  async exec(command: string, timeoutSec = HDC_EXEC_DEFAULT_TIMEOUT_SEC): Promise<string> {
     const args = this.buildArgs(command);
     return this.execRaw(args, timeoutSec);
   }
@@ -68,7 +69,7 @@ export class HdcClient {
   }
 
   /** hdc shell <command> */
-  async shell(command: string, timeoutSec = 8): Promise<string> {
+  async shell(command: string, timeoutSec = HDC_SHELL_DEFAULT_TIMEOUT_SEC): Promise<string> {
     return this.exec(`-s ${this.ip}:${this.port} -t ${this.sn} shell ${command}`, timeoutSec);
   }
 
@@ -138,7 +139,7 @@ export class HdcClient {
   async pushFile(localPath: string, remotePath: string): Promise<string> {
     return this.exec(
       `-s ${this.ip}:${this.port} -t ${this.sn} file send ${localPath} ${remotePath}`,
-      30
+      HDC_PUSH_FILE_TIMEOUT_SEC
     );
   }
 
@@ -146,10 +147,13 @@ export class HdcClient {
   async pullFile(remotePath: string, localPath: string): Promise<string> {
     return this.exec(
       `-s ${this.ip}:${this.port} -t ${this.sn} file recv ${remotePath} ${localPath}`,
-      30
+      HDC_PULL_FILE_TIMEOUT_SEC
     );
   }
 
   getSn(): string { return this.sn; }
   getIp(): string { return this.ip; }
 }
+
+// Re-export types for backward compatibility
+export type { HdcOptions } from '../types';

@@ -10,6 +10,11 @@
 
 import { exec } from 'child_process';
 import { HosScrcpyServer } from '../server';
+import {
+  DEFAULT_SERVER_PORT,
+  PORT_KILL_MAX_ATTEMPTS,
+  PORT_KILL_DELAY_INCREMENT_MS,
+} from '../constants';
 
 /**
  * 查找并杀掉占用指定端口的进程，然后等待端口释放
@@ -59,7 +64,7 @@ async function killPortOccupier(port: number): Promise<void> {
   };
 
   // 尝试最多3次
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < PORT_KILL_MAX_ATTEMPTS; i++) {
     const pids = await getPid();
     if (pids.length === 0) {
       return; // 端口已释放
@@ -71,7 +76,7 @@ async function killPortOccupier(port: number): Promise<void> {
     }
 
     // 等待端口释放，每次等待时间递增
-    await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+    await new Promise(r => setTimeout(r, PORT_KILL_DELAY_INCREMENT_MS * (i + 1)));
   }
 
   // 最后再检查一次
@@ -91,7 +96,7 @@ function getArg(name: string): string | undefined {
 
 async function main() {
   const hdcPath = getArg('hdc') || process.env.HDC_PATH || 'hdc';
-  const port = parseInt(getArg('port') || process.env.PORT || '9523', 10);
+  const port = parseInt(getArg('port') || process.env.PORT || String(DEFAULT_SERVER_PORT), 10);
   const templatesDir = getArg('templates');
 
   // 自动杀掉占用端口的进程
