@@ -34,7 +34,7 @@ describe.skipIf(!SN)('WebSocket integration', () => {
 
   afterAll(async () => {
     if (serverProc) {
-      try { serverProc.kill(); } catch {}
+      try { serverProc.kill(); } catch { /* ignore cleanup errors */ }
       serverProc = null;
     }
   });
@@ -71,7 +71,7 @@ describe.skipIf(!SN)('WebSocket integration', () => {
           try {
             const msg = JSON.parse(data.toString());
             if (msg.type === 'screenConfig') configReceived = true;
-          } catch {}
+          } catch { /* ignore JSON parse errors */ }
         } else {
           binaryCount++;
         }
@@ -110,7 +110,7 @@ describe.skipIf(!SN)('WebSocket integration', () => {
               ws.send(JSON.stringify({ type: 'stop', sn: SN }));
               setTimeout(() => { ws.close(); resolve(); }, 1000);
             }
-          } catch {}
+          } catch { /* ignore JSON parse errors */ }
         }
       });
 
@@ -138,7 +138,7 @@ describe.skipIf(!SN)('WebSocket integration', () => {
               ws.send(JSON.stringify({ type: 'stop', sn: SN }));
               setTimeout(() => { ws.close(); resolve(); }, 1000);
             }
-          } catch {}
+          } catch { /* ignore JSON parse errors */ }
         }
       });
 
@@ -165,7 +165,7 @@ describe.skipIf(!SN)('WebSocket integration', () => {
               clearTimeout(timeout);
               setTimeout(() => { ws.close(); resolve(); }, 2000);
             }
-          } catch {}
+          } catch { /* ignore JSON parse errors */ }
         }
       });
 
@@ -192,7 +192,7 @@ describe.skipIf(!SN)('WebSocket integration', () => {
               clearTimeout(timeout);
               setTimeout(() => { ws1.close(); resolve(); }, 2000);
             }
-          } catch {}
+          } catch { /* ignore JSON parse errors */ }
         }
       });
     });
@@ -214,7 +214,7 @@ describe.skipIf(!SN)('WebSocket integration', () => {
               clearTimeout(timeout);
               setTimeout(() => { ws2.close(); resolve(); }, 1000);
             }
-          } catch {}
+          } catch { /* ignore JSON parse errors */ }
         }
       });
     });
@@ -242,12 +242,12 @@ describe.skipIf(!SN)('WebSocket integration', () => {
       ws2.on('open', () => ws2.send(JSON.stringify({ type: 'screen', sn: SN, remoteIp: '127.0.0.1', remotePort: '8710' })));
 
       ws1.on('message', (data: Buffer, isBinary: boolean) => {
-        if (!isBinary) { try { if (JSON.parse(data.toString()).type === 'screenConfig') config1 = true; } catch {} }
+        if (!isBinary) { try { if (JSON.parse(data.toString()).type === 'screenConfig') config1 = true; } catch { /* ignore JSON parse errors */ } }
         else { binary1++; }
         checkDone();
       });
       ws2.on('message', (data: Buffer, isBinary: boolean) => {
-        if (!isBinary) { try { if (JSON.parse(data.toString()).type === 'screenConfig') config2 = true; } catch {} }
+        if (!isBinary) { try { if (JSON.parse(data.toString()).type === 'screenConfig') config2 = true; } catch { /* ignore JSON parse errors */ } }
         else { binary2++; }
         checkDone();
       });

@@ -1,6 +1,5 @@
 import { WebSocket } from 'ws';
-import { DeviceManager, ScrcpyConfig } from './manager';
-import { UitestServer } from '../input/uitest';
+import { IDeviceManager, IUitestServer, IScrcpyStream } from './interfaces';
 import { DirectScrcpyStream } from '../capture/direct-scrcpy';
 import {
   UINPUT_MONITOR_TIMEOUT_SEC,
@@ -13,9 +12,9 @@ import {
  * 设备上下文 — 管理单个设备的所有投屏和输入资源
  */
 export class DeviceContext {
-  manager: DeviceManager;
-  uitest: UitestServer;
-  scrcpyStream: DirectScrcpyStream | null = null;
+  public manager: IDeviceManager;
+  public uitest: IUitestServer;
+  scrcpyStream: IScrcpyStream | null = null;
   private activeCastType: 'screen' | 'uitest' | null = null;
   private clients = new Set<string>();
   private wsClients = new Map<string, WebSocket>();
@@ -23,10 +22,47 @@ export class DeviceContext {
   private startLock: Promise<void> | null = null;
   private persistent: boolean = false;  // 持久化标记：无 WS 客户端时也保持投屏
 
-  constructor(config: ScrcpyConfig & { persistent?: boolean }) {
-    this.manager = new DeviceManager(config);
-    this.uitest = new UitestServer(this.manager);
-    this.persistent = config.persistent || false;
+  /**
+   * 依赖注入构造函数 — 接收已创建的依赖
+   *
+   * @param manager - 设备管理器实例
+   * @param uitest - UiTest 服务实例
+   * @param persistent - 是否持久化投屏（无客户端时保持流）
+   * @param streamFactory - 可选的流工厂函数
+   */
+  constructor(
+    manager: IDeviceManager,
+    uitest: IUitestServer,
+    persistent: boolean = false,
+    private streamFactory?: (manager: IDeviceManager) => IScrcpyStream,
+  ) {
+    this.manager = manager;
+    this.uitest = uitest;
+    this.persistent = persistent;
+  }
+
+  /**
+   * 创建 Scrcpy 视频流实例
+   */
+  private createStream(): IScrcpyStream {
+    if (this.streamFactory) {
+      return this.streamFactory(this.manager);
+    }
+    return new DirectScrcpyStream(this.manager);
+  }
+
+  /**
+   * 向后兼容的工厂方法 — 从配置创建 DeviceContext
+   *
+   * @param config - Scrcpy 配置
+   * @returns 新的 DeviceContext 实例
+   */
+  static fromConfig(config: { sn: string; persistent?: boolean } & Record<string, unknown>): DeviceContext {
+    const { DeviceManager } = require('./manager');
+    const { UitestServer } = require('../../input/uitest');
+    const manager = DeviceManager.fromConfig(config as any);
+    const uitest = UitestServer.fromDeviceManager(manager);
+    return new DeviceContext(manager, uitest, config.persistent || false);
   }
 
   addClient(clientId: string): void {
@@ -106,7 +142,7 @@ export class DeviceContext {
       const forwardPort = await this.manager.startScrcpyWithForward();
       console.log('[DeviceContext] scrcpy forward port:', forwardPort);
 
-      this.scrcpyStream = new DirectScrcpyStream(this.manager);
+      this.scrcpyStream = this.createStream();
       this.activeCastType = 'screen';
 
       await startUitest;
@@ -132,7 +168,7 @@ export class DeviceContext {
           this.scrcpyStarted = true;
           // 通知所有客户端 scale 倍率，用于触控坐标映射
           const scale = this.manager.getScale();
-          for (const [id, clientWs] of this.wsClients) {
+          for (const [_id, clientWs] of this.wsClients) {
             if (clientWs.readyState === WebSocket.OPEN) {
               clientWs.send(JSON.stringify({ type: 'screenConfig', scale }));
             }
@@ -222,7 +258,7 @@ export class DeviceContext {
     await this.stopCast();
     await this.uitest.stop();
     // 关闭所有 WebSocket 连接
-    for (const [id, ws] of this.wsClients) {
+    for (const [_id, ws] of this.wsClients) {
       if (ws.readyState === WebSocket.OPEN) {
         ws.close();
       }

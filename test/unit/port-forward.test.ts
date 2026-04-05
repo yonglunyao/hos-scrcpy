@@ -1,10 +1,10 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { MockHdcClient } from '../helpers/mock-hdc';
 
 describe('PortForwardManager withLock', () => {
   // Test the withLock serialization logic extracted
   it('serializes concurrent calls', async () => {
-    let resolveLock!: () => void;
+    let _resolveLock!: () => void;
     let lock: Promise<void> = Promise.resolve();
     const order: number[] = [];
 
@@ -12,7 +12,7 @@ describe('PortForwardManager withLock', () => {
       const prev = lock;
       let r!: () => void;
       lock = new Promise<void>(res => { r = res; });
-      resolveLock = r;
+      _resolveLock = r;
       await prev;
       try {
         await fn();

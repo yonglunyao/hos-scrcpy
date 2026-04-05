@@ -7,12 +7,12 @@ const SN = getDeviceSn();
 test.describe('UI casting lifecycle', () => {
   let context: BrowserContext;
   let proc: any;
-  let baseUrl: string;
+  let _baseUrl: string;
 
   test.beforeAll(async () => {
     const result = await startServer();
     proc = result.proc;
-    baseUrl = result.baseUrl;
+    _baseUrl = result.baseUrl;
   });
 
   test.afterAll(async () => {

@@ -1,5 +1,5 @@
 import {
-  encodeVarint, encodeTag, encodeLengthDelimited, encodeInt32, encodeInt64,
+  encodeVarint, encodeTag, encodeLengthDelimited, encodeInt32,
   encodeBool, encodeFloat,
 } from '../../src/capture/protobuf';
 

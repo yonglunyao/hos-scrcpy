@@ -6,16 +6,16 @@ import { DeviceManager } from '../../src/device/manager';
 // Access private builder methods by creating a test instance
 // The builders are now public for testing, but they require an instance
 function createTestInstance(): UitestServer {
-  const mock = new MockHdcClient();
+  const _mock = new MockHdcClient();
   // We need a DeviceManager, which requires a HdcClient
-  // Since we can't easily mock HdcClient in the constructor, we'll test the JSON output directly
-  const dm = new DeviceManager({
+  // Use the fromConfig factory method for backward compatibility
+  const dm = DeviceManager.fromConfig({
     sn: 'TEST',
     hdcPath: 'hdc',
     ip: '127.0.0.1',
     hdcPort: 8710,
   });
-  return new UitestServer(dm);
+  return UitestServer.fromDeviceManager(dm);
 }
 
 // Since UitestServer's builder methods are now public but require instance context,

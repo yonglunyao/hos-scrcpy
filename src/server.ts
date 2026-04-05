@@ -2,10 +2,8 @@ import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
 import { WebSocketServer, WebSocket } from 'ws';
-import { DeviceManager, ScrcpyConfig, ScreenSize } from './device/manager';
 import { DeviceContext } from './device/context';
-import { UitestServer } from './input/uitest';
-import { DirectScrcpyStream } from './capture/direct-scrcpy';
+import { DeviceFactory, IDeviceFactory } from './device/factory';
 import { getHdcKeyCode } from './input/keycode';
 import type { ServerConfig } from './types';
 import {
@@ -45,14 +43,17 @@ export class HosScrcpyServer {
   private clientIdCounter = 0;
   private clientToDevice = new Map<string, string>();  // clientId -> device sn
   private resolvedPort: number | null = null;  // 存储实际监听端口（支持动态端口）
+  private factory: IDeviceFactory;  // 设备工厂
 
-  constructor(config: ServerConfig = {}) {
+  constructor(config: ServerConfig = {}, factory?: IDeviceFactory) {
     this.config = {
       host: config.host || '0.0.0.0',
       port: config.port !== undefined ? config.port : DEFAULT_SERVER_PORT,
       hdcPath: config.hdcPath || 'hdc',
       templatesDir: config.templatesDir,
     };
+
+    this.factory = factory || new DeviceFactory();
 
     this.httpServer = http.createServer((req, res) => this.handleHttpRequest(req, res));
     this.wss = new WebSocketServer({ noServer: true });
@@ -119,16 +120,17 @@ export class HosScrcpyServer {
       }
     } else {
       // 创建新的 DeviceContext，标记为持久化（无 WS 客户端时也保持）
-      ctx = new DeviceContext({
+      const newCtx = this.factory.createDeviceContext({
         sn,
         ip: '127.0.0.1',
         hdcPath: this.config.hdcPath,
         hdcPort: DEFAULT_HDC_PORT,
         scale: DEFAULT_SCALE,
         frameRate: DEFAULT_FRAME_RATE,
-        bitRate: 8,
+        bitRate: DEFAULT_BIT_RATE_MBPS,
         persistent: true,  // 标记为持久化设备
       });
+      ctx = newCtx as DeviceContext;
       this.devices.set(sn, ctx);
     }
 
@@ -516,15 +518,16 @@ console.log('Port:', server.getPort());</pre>
       return ctx;
     }
 
-    ctx = new DeviceContext({
+    const newCtx = this.factory.createDeviceContext({
       sn,
       ip: remoteIp || '127.0.0.1',
       hdcPath: this.config.hdcPath,
-      hdcPort: remotePort ? parseInt(remotePort, 10) : 8710,
+      hdcPort: remotePort ? parseInt(remotePort, 10) : DEFAULT_HDC_PORT,
       scale: DEFAULT_SCALE,             // 使用之前工作的参数
       frameRate: DEFAULT_FRAME_RATE,
       bitRate: DEFAULT_BIT_RATE_MBPS,
     });
+    ctx = newCtx as DeviceContext;
 
     if (clientId) {
       ctx.addClient(clientId);

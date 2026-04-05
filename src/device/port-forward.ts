@@ -1,8 +1,10 @@
-import { createServer, Server } from 'net';
+import { createServer } from 'net';
 import { HdcClient } from './hdc';
+import { IPortForwardManager, ForwardedPort } from './interfaces';
 
-const RANDOM_PORT_MIN = 36000;
-const RANDOM_PORT_RANGE = 1000;
+// Port range constants reserved for future use
+const _RANDOM_PORT_MIN = 36000;
+const _RANDOM_PORT_RANGE = 1000;
 
 function getRandomPort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -15,15 +17,16 @@ function getRandomPort(): Promise<number> {
   });
 }
 
-export interface ForwardedPort {
-  localPort: number;
-  release: () => Promise<void>;
-}
+/**
+ * Re-export ForwardedPort from interfaces for backward compatibility
+ * @deprecated Use ForwardedPort from './interfaces' instead
+ */
+export type { ForwardedPort };
 
 /**
  * 端口转发管理 — 管理 hdc fport 的创建和清理
  */
-export class PortForwardManager {
+export class PortForwardManager implements IPortForwardManager {
   private hdc: HdcClient;
   private forwards: ForwardedPort[] = [];
   private lock: Promise<void> = Promise.resolve();

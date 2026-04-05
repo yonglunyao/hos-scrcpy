@@ -1,11 +1,6 @@
 import { test, expect, type Page, type BrowserContext } from '@playwright/test';
-import { startServer, stopServer, getBaseUrl } from './server-helper';
+import { startServer, stopServer, getBaseUrl, type ServerHelper } from './server-helper';
 import { getDeviceSn } from '../helpers/device-check';
-
-import type { ServerHelper } from './server-helper';
-
-// Helper type for server
-type ServerHelper = { proc: any; baseUrl: string };
 
 const SN = getDeviceSn();
 
@@ -59,7 +54,7 @@ describe_('UI touch simulation', () => {
     await startCastingAndWait(page);
     // Verify mousedown event listener is attached to the video
     const hasListener = await page.evaluate(() => {
-      const video = document.getElementById('screenVideo')!;
+      const _video = document.getElementById('screenVideo')!;
       // Check if mousedown handler exists by seeing if getVideoCoords is the global scope
       const hasGetVideoCoords = typeof (window as any).getVideoCoords === 'function';
       const hasSendTouchEvent = typeof (window as any).sendTouchEvent === 'function';

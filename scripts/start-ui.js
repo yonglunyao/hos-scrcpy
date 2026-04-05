@@ -39,7 +39,7 @@ function isPortInUse(port) {
  */
 function startServer() {
   console.log('[启动] 正在启动服务器...');
-  const server = exec(`node dist/bin/server.js --templates "${TEMPLATES_DIR}"`, {
+  const _server = exec(`node dist/bin/server.js --templates "${TEMPLATES_DIR}"`, {
     stdio: 'inherit',
     shell: true,
     cwd: PROJECT_ROOT

@@ -1,10 +1,11 @@
 # hos-scrcpy SDK 接口文档
 
-> 版本: 1.0.0 | 入口: `import { ... } from 'hos-scrcpy'`
+> 版本: 1.1.1 | 入口: `import { ... } from 'hos-scrcpy'`
 
 ## 目录
 
 - [快速开始](#快速开始)
+- [依赖注入架构](#依赖注入架构-v111+) — 接口抽象与自定义实现
 - [HosScrcpyServer](#hosscrcpyserver) — 完整投屏服务（HTTP + WebSocket）
 - [DeviceManager](#devicemanager) — 设备管理、SO 推送、scrcpy 生命周期
 - [HdcClient](#hdcclient) — HDC 命令行封装
@@ -86,6 +87,368 @@ await device.stopScrcpy();
 ```bash
 npx hos-scrcpy --port 9523 --hdc /path/to/hdc --templates ./templates
 ```
+
+---
+
+## 依赖注入架构 (v1.1.1+)
+
+hos-scrcpy 采用基于接口的依赖注入架构，所有核心组件都可通过接口抽象进行替换或扩展。
+
+### 接口层次结构
+
+```
+IHdcClient          — HarmonyOS Device Connector 抽象
+    ↓
+IPortForwardManager — 端口转发抽象（TCP/abstract socket）
+    ↓
+IDeviceManager      — 设备管理抽象（组合上述两个）
+    ↓
+IUitestServer       — 输入控制抽象（依赖 IDeviceManager）
+    ↓
+IScrcpyStream       — 视频流抽象（依赖 IDeviceManager）
+    ↓
+IDeviceFactory      — 组件工厂抽象
+```
+
+### 导入接口
+
+```typescript
+import type {
+  IHdcClient,
+  IPortForwardManager,
+  IDeviceManager,
+  IUitestServer,
+  IScrcpyStream,
+  IDeviceFactory,
+} from 'hos-scrcpy';
+```
+
+### 接口定义速查
+
+#### IHdcClient
+
+```typescript
+interface IHdcClient {
+  isOnline(): Promise<boolean>;
+  shell(command: string, timeout?: number): Promise<string>;
+  spawnShell(command: string): ChildProcess;
+  pushFile(localPath: string, remotePath: string): Promise<string>;
+  pullFile(remotePath: string, localPath: string): Promise<string>;
+  createForward(localPort: number, remotePort: number): Promise<string>;
+  createAbstractForward(localPort: number, abstractSocket: string): Promise<string>;
+  removeForward(localPort: number, remotePort: number): Promise<string>;
+  removeAbstractForward(localPort: number, abstractSocket: string): Promise<string>;
+  getSn(): string;
+  getIp(): string;
+}
+```
+
+#### IPortForwardManager
+
+```typescript
+interface ForwardedPort {
+  localPort: number;
+  release(): Promise<void>;
+}
+
+interface IPortForwardManager {
+  createTcpForward(remotePort: number): Promise<ForwardedPort>;
+  createAbstractForward(abstractSocket: string): Promise<ForwardedPort>;
+  releaseAll(): Promise<void>;
+}
+```
+
+#### IDeviceManager（核心接口）
+
+```typescript
+interface IDeviceManager {
+  // 设备状态
+  isOnline(): Promise<boolean>;
+  shell(command: string, timeout?: number): Promise<string>;
+  getScale(): number;
+  getSn(): string;
+  getIp(): string;
+  getScreenId(): number;
+
+  // 组件访问
+  getHdc(): IHdcClient;
+  getPortForward(): IPortForwardManager | undefined;
+
+  // Scrcpy 生命周期
+  startScrcpyWithForward(): Promise<number>;
+  stopScrcpy(): Promise<void>;
+  getScrcpyForwardPort(): number;
+  setScrcpyForwardPort(port: number): void;
+
+  // 设备信息
+  getScreenSize(): Promise<{ width: number; height: number }>;
+  compareVersion(target: string, device: string): number;
+  useSecConnect(): Promise<boolean>;
+  pushSo(soName: string, devicePath?: string): Promise<boolean>;
+  getUitestVersion(): Promise<string>;
+  ensureBasicUitest(): Promise<void>;
+  getScrcpyPids(): Promise<string[]>;
+  killScrcpy(): Promise<void>;
+  wakeUp(): Promise<void>;
+  isCloudDevice(): Promise<boolean>;
+  getImageScaleSize(): number;
+  getIsUseSecSo(): boolean;
+  startScrcpy(): Promise<void>;
+}
+```
+
+#### IUitestServer
+
+```typescript
+interface IUitestServer {
+  isUitestRunning(): boolean;
+  start(): Promise<void>;
+  stop(): Promise<void>;
+  pressKey(keyCode: number): Promise<boolean>;
+  touchDown(x: number, y: number): Promise<void>;
+  touchUp(x: number, y: number): Promise<void>;
+  touchMove(x: number, y: number): Promise<void>;
+  getScreenSize(): Promise<{ width: number; height: number }>;
+  getLayout(): Promise<string>;
+}
+```
+
+#### IScrcpyStream
+
+```typescript
+interface IScrcpyStream {
+  start(opts: {
+    onData: (data: Buffer) => void;
+    onReady: () => void;
+    onError: (err: Error) => void;
+  }): Promise<void>;
+  requestIdrFrame(): Promise<void>;
+  stop(): Promise<void>;
+}
+```
+
+#### IDeviceFactory
+
+```typescript
+interface IDeviceFactory {
+  createHdcClient(config: {
+    hdcPath?: string;
+    ip?: string;
+    sn: string;
+    port?: number;
+  }): IHdcClient;
+  createPortForwardManager(hdc: IHdcClient): IPortForwardManager;
+  createDeviceManager(config: ScrcpyConfig): IDeviceManager;
+  createUitestServer(manager: IDeviceManager): IUitestServer;
+  createScrcpyStream(manager: IDeviceManager): IScrcpyStream;
+  createDeviceContext(config: ScrcpyConfig & { persistent?: boolean }): IDeviceContext;
+}
+```
+
+### 自定义实现示例
+
+#### 示例 1: 自定义设备管理器
+
+```typescript
+import { IDeviceManager, IUitestServer, IScrcpyStream } from 'hos-scrcpy';
+
+class CustomDeviceManager implements IDeviceManager {
+  constructor(private config: ScrcpyConfig) {
+    // 初始化自定义实现
+  }
+
+  // 实现所有必需的接口方法
+  async isOnline(): Promise<boolean> {
+    // 自定义设备检测逻辑
+    return true;
+  }
+
+  async shell(command: string, timeout?: number): Promise<string> {
+    // 自定义 shell 命令执行
+    return '';
+  }
+
+  getScale(): number { return this.config.scale || 1; }
+  getSn(): string { return this.config.sn; }
+  getIp(): string { return this.config.ip || '127.0.0.1'; }
+  getScreenId(): number { return 0; }
+
+  // ... 实现其余 20+ 个接口方法
+
+  getHdc(): IHdcClient {
+    // 返回自定义 HDC 客户端
+    throw new Error('Not implemented');
+  }
+
+  getPortForward(): IPortForwardManager | undefined {
+    // 返回自定义端口转发管理器
+    return undefined;
+  }
+
+  async startScrcpyWithForward(): Promise<number> {
+    // 自定义 scrcpy 启动流程
+    return 5000;
+  }
+
+  // ... 其他方法实现
+}
+```
+
+#### 示例 2: 自定义视频流处理
+
+```typescript
+import { IScrcpyStream, IDeviceManager } from 'hos-scrcpy';
+
+class CustomVideoStream implements IScrcpyStream {
+  constructor(private device: IDeviceManager) {
+    // 初始化自定义视频流处理器
+  }
+
+  async start(opts: {
+    onData: (data: Buffer) => void;
+    onReady: () => void;
+    onError: (err: Error) => void;
+  }): Promise<void> {
+    // 自定义视频流启动逻辑
+    // 例如：添加视频编码转换、水印叠加等
+    opts.onReady();
+  }
+
+  async requestIdrFrame(): Promise<void> {
+    // 请求 IDR 帧
+  }
+
+  async stop(): Promise<void> {
+    // 清理资源
+  }
+}
+```
+
+#### 示例 3: 完整的自定义工厂
+
+```typescript
+import {
+  IDeviceFactory,
+  IDeviceManager,
+  IHdcClient,
+  IPortForwardManager,
+  IUitestServer,
+  IScrcpyStream,
+  ScrcpyConfig,
+} from 'hos-scrcpy';
+
+class CustomDeviceFactory implements IDeviceFactory {
+  createHdcClient(config): IHdcClient {
+    // 返回自定义 HDC 客户端
+    return new CustomHdcClient(config);
+  }
+
+  createPortForwardManager(hdc: IHdcClient): IPortForwardManager {
+    // 返回自定义端口转发管理器
+    return new CustomPortForwardManager(hdc);
+  }
+
+  createDeviceManager(config: ScrcpyConfig): IDeviceManager {
+    // 返回自定义设备管理器
+    return new CustomDeviceManager(config);
+  }
+
+  createUitestServer(manager: IDeviceManager): IUitestServer {
+    // 返回自定义 UiTest 服务
+    return new CustomUitestServer(manager);
+  }
+
+  createScrcpyStream(manager: IDeviceManager): IScrcpyStream {
+    // 返回自定义视频流
+    return new CustomVideoStream(manager);
+  }
+
+  createDeviceContext(config) {
+    // 返回自定义设备上下文
+    return new CustomDeviceContext(config);
+  }
+}
+```
+
+#### 示例 4: 注入自定义工厂到服务器
+
+```typescript
+import { HosScrcpyServer, IDeviceFactory } from 'hos-scrcpy';
+
+const customFactory = new CustomDeviceFactory();
+const server = new HosScrcpyServer(
+  { port: 9523 },
+  customFactory  // 注入自定义工厂
+);
+await server.start();
+
+// 所有设备操作现在都使用自定义实现
+await server.startDevice('FMR0223B16009134');
+```
+
+#### 示例 5: 使用流工厂注入
+
+```typescript
+import { DeviceContext, IDeviceManager, IUitestServer, IScrcpyStream } from 'hos-scrcpy';
+
+// 创建设备上下文时注入自定义流工厂
+const ctx = new DeviceContext(
+  manager,      // IDeviceManager
+  uitest,       // IUitestServer
+  false,        // persistent
+  (mgr: IDeviceManager) => new CustomVideoStream(mgr)  // 流工厂
+);
+
+// 启动投屏时将使用自定义视频流
+await ctx.startScreenCast();
+```
+
+### 测试中的 Mock 实现
+
+依赖注入架构使单元测试变得简单：
+
+```typescript
+import { IDeviceManager, IUitestServer } from 'hos-scrcpy';
+
+class MockDeviceManager implements IDeviceManager {
+  async isOnline() { return true; }
+  async shell(cmd: string) { return 'mock output'; }
+  getScale() { return 2; }
+  getSn() { return 'MOCK_DEVICE'; }
+  getIp() { return '127.0.0.1'; }
+  getScreenId() { return 0; }
+  // ... 最小化实现其他方法
+}
+
+describe('MyComponent', () => {
+  it('should work with mock device', async () => {
+    const mockDevice = new MockDeviceManager();
+    // 测试代码使用 mock 对象
+  });
+});
+```
+
+### 向后兼容性
+
+所有组件保留静态工厂方法，现有代码无需修改：
+
+```typescript
+// 旧代码继续工作
+import { DeviceManager, UitestServer } from 'hos-scrcpy';
+
+const device = DeviceManager.fromConfig({ sn: 'xxx' });
+const uitest = UitestServer.fromDeviceManager(device);
+```
+
+### 架构收益
+
+| 特性 | 收益 |
+|------|------|
+| **可测试性** | 通过 Mock 接口进行单元测试 |
+| **可扩展性** | 运行时注入自定义实现 |
+| **类型安全** | 完整的 TypeScript 类型定义 |
+| **模块化** | 组件间低耦合，易于维护 |
+| **灵活性** | 支持多种部署场景 |
 
 ---
 

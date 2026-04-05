@@ -1,4 +1,4 @@
-import { test, expect, type Page, type BrowserContext } from '@playwright/test';
+import { test, expect, type BrowserContext } from '@playwright/test';
 import { startServer, stopServer, getBaseUrl } from './server-helper';
 import { getDeviceSn } from '../helpers/device-check';
 

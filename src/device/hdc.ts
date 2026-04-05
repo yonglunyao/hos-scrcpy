@@ -36,7 +36,7 @@ export class HdcClient {
   private execRaw(args: string[], timeoutSec: number): Promise<string> {
     return new Promise((resolve) => {
       let output = '';
-      let killed = false;
+      let _killed = false;
 
       const proc = spawn(args[0]!, args.slice(1), {
         windowsHide: true,
@@ -44,7 +44,7 @@ export class HdcClient {
       } as SpawnOptions);
 
       const timer = setTimeout(() => {
-        killed = true;
+        _killed = true;
         proc.kill('SIGKILL');
       }, timeoutSec * 1000);
 

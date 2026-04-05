@@ -12,6 +12,8 @@ npm run dev         # ts-node src/bin/server.ts (development)
 npm run ui          # start server + open web UI in browser
 npm run pack        # build + create tgz in package/ directory
 npx tsc --noEmit    # type-check only
+npm run lint        # ESLint check
+npm run lint:fix    # ESLint auto-fix
 ```
 
 CLI options: `--hdc <path>` (default: `hdc`), `--port <port>` (default: `9523`), `--templates <dir>`
@@ -28,11 +30,31 @@ npm test                # all tests
 
 **Note**: Integration tests require a connected HarmonyOS device. Avoid rapid test cycles (< 3s between device operations) to prevent resource exhaustion on the device.
 
+### Testing Video Streaming
+
+For manual testing of the video streaming feature, use `templates/index.html` as the frontend:
+
+```bash
+npm run dev
+# Open http://localhost:9523 in browser
+```
+
+**Why use templates/index.html:**
+- Uses JMuxer library for H.264 decoding (verified working, ~75ms latency)
+- Custom frontends using WebCodecs may fail due to missing SPS/PPS/IDR frames
+- Provides comprehensive UI for device selection, input control, and status monitoring
+
+**Features:**
+- Device selection and cast control
+- Touch/mouse/keyboard input support
+- Real-time status (frames, latency, bitrate, uptime)
+- Adaptive buffering and playback rate adjustment
+
 ## Architecture
 
 hos-scrcpy is a TypeScript replacement for `demoWithoutRecord.jar` — a HarmonyOS screen casting server. It connects to HarmonyOS devices via HDC, loads native SO extensions into the uitest daemon, and streams H.264 video over WebSocket.
 
-### v1.1.0: Programmatic API
+### v1.1.0: Programmatic API & Dependency Injection
 
 The server now supports programmatic device management for framework integration:
 
@@ -52,6 +74,71 @@ await server.stopAll();                           // Stop all devices
 
 **Persistent devices**: Devices started via `startDevice()` remain active even without WebSocket clients. Only `stopDevice()` or `stopAll()` terminates them. This enables event-driven frameworks to manage device lifecycle independently of client connections.
 
+### Dependency Injection Architecture (v1.1.1+)
+
+All core components are interface-based for modularity and testability:
+
+```
+IHdcClient          — HarmonyOS Device Connector abstraction
+    ↓
+IPortForwardManager — Port forwarding abstraction (TCP/abstract socket)
+    ↓
+IDeviceManager      — Device management abstraction (combines above)
+    ↓
+IUitestServer       — Input control abstraction (depends on IDeviceManager)
+    ↓
+IScrcpyStream       — Video stream abstraction (depends on IDeviceManager)
+    ↓
+IDeviceFactory      — Component factory abstraction
+```
+
+**Custom implementations** can be injected at runtime:
+
+```typescript
+import { HosScrcpyServer, IDeviceFactory, IDeviceManager } from 'hos-scrcpy';
+
+class CustomDeviceManager implements IDeviceManager {
+  // Implement all 20+ interface methods
+  async isOnline(): Promise<boolean> { /* ... */ }
+  async shell(cmd: string): Promise<string> { /* ... */ }
+  // ... (see src/device/interfaces.ts for full list)
+}
+
+class CustomFactory implements IDeviceFactory {
+  createDeviceManager(config): IDeviceManager {
+    return new CustomDeviceManager(config);
+  }
+  createHdcClient(config) { /* ... */ }
+  createPortForwardManager(hdc) { /* ... */ }
+  createUitestServer(manager) { /* ... */ }
+  createScrcpyStream(manager) { /* ... */ }
+  createDeviceContext(config) { /* ... */ }
+}
+
+const server = new HosScrcpyServer({}, new CustomFactory());
+```
+
+**Stream factory injection** (for custom video pipelines):
+
+```typescript
+import { DeviceContext } from 'hos-scrcpy';
+
+class CustomStream implements IScrcpyStream {
+  async start(opts) { /* custom video handling */ }
+  async requestIdrFrame() { /* ... */ }
+  async stop() { /* ... */ }
+}
+
+const ctx = new DeviceContext(
+  manager,
+  uitest,
+  false,
+  (mgr) => new CustomStream(mgr)  // stream factory
+);
+```
+
+**Backward compatibility**: All components retain static factory methods (`DeviceManager.fromConfig()`, `UitestServer.fromDeviceManager()`, `DeviceContext.fromConfig()`). Existing code works without changes.
+
 ### Protocol Stack
 
 ```
@@ -69,9 +156,12 @@ Web Browser ←WebSocket→ HosScrcpyServer ←gRPC (h2c)→ uitest daemon (on d
 | Module | Purpose |
 |--------|---------|
 | `src/server.ts` | HTTP + WebSocket server, programmatic API, device lifecycle (`DeviceContext`), message routing |
+| `src/device/interfaces.ts` | **Core interfaces**: `IHdcClient`, `IPortForwardManager`, `IDeviceManager`, `IUitestServer`, `IScrcpyStream`, `IDeviceFactory` |
 | `src/device/hdc.ts` | HDC CLI wrapper (`shell`, `spawnShell`, `pushFile`, `fport`) |
 | `src/device/manager.ts` | SO version matching (MD5), scrcpy process management, startup orchestration (`startScrcpyWithForward`) |
 | `src/device/port-forward.ts` | Mutex-guarded `hdc fport` create/remove for TCP and abstract sockets |
+| `src/device/factory.ts` | `DeviceFactory` — creates and wires all device components |
+| `src/device/context.ts` | `DeviceContext` — per-device state (scrcpy stream, clients, uitest) |
 | `src/capture/direct-scrcpy.ts` | **Active** gRPC client using Node.js `http2` (h2c prior knowledge). Parses 5-byte gRPC frames + hand-written protobuf. |
 | `src/capture/protobuf.ts` | Hand-written protobuf codec for `ReplyMessage`, `ParamValue`, `ReplyEndMessage` — no .proto compilation needed. |
 | `src/input/uitest.ts` | TCP socket client to uitest agent. Plain JSON for input events; HEAD/TAIL framed JSON for layout queries. |

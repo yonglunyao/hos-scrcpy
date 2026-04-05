@@ -31,5 +31,5 @@ export async function startServer(): Promise<{ baseUrl: string; proc: ChildProce
 }
 
 export async function stopServer(proc: ChildProcess): Promise<void> {
-  if (proc) { try { proc.kill(); } catch {} }
+  if (proc) { try { proc.kill(); } catch { /* ignore cleanup errors */ } }
 }

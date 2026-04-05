@@ -1,5 +1,5 @@
 import * as net from 'net';
-import { DeviceManager } from '../device/manager';
+import { IDeviceManager, IUitestServer } from '../device/interfaces';
 import { DeviceNotFoundError } from '../errors';
 import {
   AGENT_SERVER_PORT,
@@ -10,7 +10,7 @@ import {
   UITEM_TYPE_CHECK_TIMEOUT_SEC,
   UITEM_START_TIMEOUT_SEC,
   UITEST_LAYOUT_REQUEST_TIMEOUT_MS,
-  AGENT_VERSION_THRESHOLD,
+  // AGENT_VERSION_THRESHOLD is now defined in device/manager.ts
 } from '../constants';
 
 const AGENT_NAMES: Record<string, string> = {
@@ -28,8 +28,8 @@ const AUX_MAGIC = 1145141919;
 /**
  * UiTest 输入控制 — 通过 TCP socket 与 uitest agent 通信
  */
-export class UitestServer {
-  private device: DeviceManager;
+export class UitestServer implements IUitestServer {
+  protected device: IDeviceManager;
   private socket: net.Socket | null = null;
   private layoutSocket: net.Socket | null = null;
   private forwardedPort = -1;
@@ -38,8 +38,23 @@ export class UitestServer {
   private isRunning = false;
   private isUseSec = false;
 
-  constructor(device: DeviceManager) {
+  /**
+   * 依赖注入构造函数 — 接收已创建的设备管理器
+   *
+   * @param device - 设备管理器实例
+   */
+  constructor(device: IDeviceManager) {
     this.device = device;
+  }
+
+  /**
+   * 向后兼容的工厂方法 — 从 IDeviceManager 创建
+   *
+   * @param device - IDeviceManager 实例
+   * @returns 新的 UitestServer 实例
+   */
+  static fromDeviceManager(device: IDeviceManager): UitestServer {
+    return new UitestServer(device);
   }
 
   isUitestRunning(): boolean { return this.isRunning; }
@@ -59,6 +74,7 @@ export class UitestServer {
 
     await this.initSoResource();
     await this.startUitest();
+    // 使用接口方法
     this.isUseSec = await this.device.useSecConnect();
     await this.startService();
     this.isReady = true;
@@ -76,11 +92,13 @@ export class UitestServer {
     this.layoutSocket = null;
 
     const pf = this.device.getPortForward();
-    // 尝试移除端口转发（两种模式都尝试）
-    if (this.forwardedPort !== -1) {
-      await pf.releaseAll();
-      this.forwardedPort = -1;
-      this.forwardedLayoutPort = -1;
+    if (pf) {
+      // 尝试移除端口转发（两种模式都尝试）
+      if (this.forwardedPort !== -1) {
+        await pf.releaseAll();
+        this.forwardedPort = -1;
+        this.forwardedLayoutPort = -1;
+      }
     }
 
     // 清理设备上的 uitest agent 进程
@@ -320,6 +338,9 @@ export class UitestServer {
 
   private async startService(): Promise<void> {
     const pf = this.device.getPortForward();
+    if (!pf) {
+      throw new Error('PortForwardManager not available');
+    }
 
     // 创建数据端口转发
     let forward;
@@ -364,7 +385,7 @@ export class UitestServer {
 
   private closeSocket(sock: net.Socket | null): void {
     if (sock) {
-      try { sock.destroy(); } catch {}
+      try { sock.destroy(); } catch { /* ignore cleanup errors */ }
     }
   }
 
@@ -437,12 +458,12 @@ export class UitestServer {
       const frame = Buffer.concat([HEAD, header, body, TAIL]);
 
       let chunks: Buffer[] = [];
-      let totalLen = 0;
+      let _totalLen = 0;
       let found = false;
 
       const onData = (buf: Buffer) => {
         chunks.push(buf);
-        totalLen += buf.length;
+        _totalLen += buf.length;
         const combined = Buffer.concat(chunks);
         const text = combined.toString('utf-8');
 

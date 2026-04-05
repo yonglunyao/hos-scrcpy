@@ -1,6 +1,6 @@
 import * as http2 from 'http2';
-import { DeviceManager } from '../device/manager';
-import { decodeReplyMessage, decodeGrpcFrame } from './protobuf';
+import { IDeviceManager, IScrcpyStream } from '../device/interfaces';
+import { decodeReplyMessage } from './protobuf';
 import { ConnectionTimeoutError, ScrcpyStartupError } from '../errors';
 import {
   HTTP2_CONNECT_TIMEOUT_MS,
@@ -24,8 +24,8 @@ type ErrorCallback = (err: Error) => void;
  * 3. 接收 server-streaming 响应 (DATA 帧包含 gRPC 帧)
  * 4. 解析 gRPC 5字节帧前缀 + protobuf ReplyMessage
  */
-export class DirectScrcpyStream {
-  private device: DeviceManager;
+export class DirectScrcpyStream implements IScrcpyStream {
+  private device: IDeviceManager;
   private session: http2.ClientHttp2Session | null = null;
   private stream: http2.ClientHttp2Stream | null = null;
   private stopFlag = false;
@@ -34,7 +34,7 @@ export class DirectScrcpyStream {
   private onReady: ReadyCallback | null = null;
   private onError: ErrorCallback | null = null;
 
-  constructor(device: DeviceManager) {
+  constructor(device: IDeviceManager) {
     this.device = device;
   }
 
@@ -157,7 +157,7 @@ export class DirectScrcpyStream {
    */
   private processFrames(): void {
     while (this.frameBuffer.length >= 5) {
-      const compressed = this.frameBuffer[0]!;
+      const _compressed = this.frameBuffer[0]!;
       const msgLength = this.frameBuffer.readUInt32BE(1);
 
       if (this.frameBuffer.length < 5 + msgLength) {
@@ -220,12 +220,12 @@ export class DirectScrcpyStream {
     this.stopFlag = true;
 
     if (this.stream) {
-      try { this.stream.close(); } catch {}
+      try { this.stream.close(); } catch { /* ignore cleanup errors */ }
       this.stream = null;
     }
 
     if (this.session) {
-      try { this.session.close(); } catch {}
+      try { this.session.close(); } catch { /* ignore cleanup errors */ }
       this.session = null;
     }
 

@@ -4,6 +4,7 @@ import * as path from 'path';
 import { ChildProcess } from 'child_process';
 import { HdcClient } from './hdc';
 import { PortForwardManager } from './port-forward';
+import { IHdcClient, IDeviceManager, IPortForwardManager } from './interfaces';
 import type { ScrcpyConfig, ScreenSize } from '../types';
 import { ScrcpyStartupError } from '../errors';
 import {
@@ -39,20 +40,23 @@ const SCRCPY_SEC_SO_LIST = [
   'libscrcpy_server-6.2-20250926.so',
 ];
 
-const SCRCPY_EMULATOR_SO = 'libscrcpy_server_emulator.z.so';
+// Reserved for future emulator support
+const _SCRCPY_EMULATOR_SO = 'libscrcpy_server_emulator.z.so';
 
-const RECORDER_SO_LIST = [
+// Reserved for future recorder support
+const _RECORDER_SO_LIST = [
   'libscrcpy_server1.z.so',
   'libscrcpy_server2.z.so',
   'libscrcpy_server3.z.so',
   'libscrcpy_server-5.8-20250925.so',
 ];
 
-const RECORDER_SEC_SO_LIST = [
+const _RECORDER_SEC_SO_LIST = [
   'libscrcpy_server-6.2-20250926.so',
 ];
 
-const AGENT_NAMES: Record<string, string> = {
+// Agent names defined in uitest.ts
+const _AGENT_NAMES: Record<string, string> = {
   x86_64: 'uitest_agent_x86_1.1.9.so',
   old: 'uitest_agent_1.1.3.so',
   split: 'uitest_agent_1.1.5.so',
@@ -61,47 +65,69 @@ const AGENT_NAMES: Record<string, string> = {
 };
 
 const DEVICE_EXTENSION_PATH = '/data/local/tmp/%s';
-const DEVICE_RECORDER_PATH = '/data/local/tmp/libscreen_recorder.z.so';
+// Reserved for future recorder support
+const _DEVICE_RECORDER_PATH = '/data/local/tmp/libscreen_recorder.z.so';
 const CMD_START_SCRCPY = '/system/bin/uitest start-daemon singleness --extension-name %s %s';
-const CMD_START_RECORDER = '/system/bin/uitest start-daemon singleness --extension-name libscreen_recorder.z.so -p %d -m 1 -screenId %s';
+// Reserved for future recorder support
+const _CMD_START_RECORDER = '/system/bin/uitest start-daemon singleness --extension-name libscreen_recorder.z.so -p %d -m 1 -screenId %s';
 const CMD_UITEST_VERSION = '/system/bin/uitest --version';
-const CMD_DELETE = 'rm /data/local/tmp/%s';
+// Reserved for future cleanup
+const _CMD_DELETE = 'rm /data/local/tmp/%s';
 
 /**
  * 设备管理 — SO 推送、版本匹配、scrcpy/uitest 启停
  */
-export class DeviceManager {
-  private hdc: HdcClient;
-  private portForward: PortForwardManager;
+export class DeviceManager implements IDeviceManager {
+  protected hdc: IHdcClient;
+  protected portForward: PortForwardManager;
   private config: Required<Pick<ScrcpyConfig, 'scale' | 'frameRate' | 'bitRate' | 'port' | 'screenId' | 'iFrameInterval' | 'repeatInterval' | 'extensionName' | 'imageScaleSize'>>;
 
   private scrcpyForwardPort = 0;
   private isUseSecSo = false;
   private scrcpyHdcProcess: ChildProcess | null = null;
 
-  constructor(config: ScrcpyConfig) {
-    this.hdc = new HdcClient({
-      hdcPath: config.hdcPath || 'hdc',
-      ip: config.ip || '127.0.0.1',
-      sn: config.sn,
-      port: config.hdcPort || DEFAULT_HDC_PORT,
-    });
-    this.portForward = new PortForwardManager(this.hdc);
+  /**
+   * 依赖注入构造函数 — 接收已创建的依赖
+   *
+   * @param hdc - HDC 客户端实例
+   * @param portForward - 端口转发管理器实例
+   * @param config - Scrcpy 配置
+   */
+  constructor(hdc: IHdcClient, portForward: PortForwardManager, config: ScrcpyConfig) {
+    this.hdc = hdc;
+    this.portForward = portForward;
     this.config = {
-      scale: config.scale ?? 1,
-      frameRate: config.frameRate ?? 30,      // 默认 30fps 降低延迟
-      bitRate: config.bitRate ?? 4,           // 默认 4Mbps
+      scale: config.scale ?? DEFAULT_SCALE,
+      frameRate: config.frameRate ?? DEFAULT_FRAME_RATE,
+      bitRate: config.bitRate ?? DEFAULT_BIT_RATE_MBPS,
       port: config.port ?? DEFAULT_SCRCPY_PORT,
       screenId: config.screenId ?? DEFAULT_SCREEN_ID,
-      iFrameInterval: config.iFrameInterval ?? DEFAULT_I_FRAME_INTERVAL_MS,   // 更频繁的关键帧
-      repeatInterval: config.repeatInterval ?? DEFAULT_REPEAT_INTERVAL_MS,     // 30fps
+      iFrameInterval: config.iFrameInterval ?? DEFAULT_I_FRAME_INTERVAL_MS,
+      repeatInterval: config.repeatInterval ?? DEFAULT_REPEAT_INTERVAL_MS,
       extensionName: config.extensionName || 'libscreen_casting.z.so',
       imageScaleSize: config.imageScaleSize ?? DEFAULT_IMAGE_SCALE_SIZE,
     };
   }
 
-  getHdc(): HdcClient { return this.hdc; }
-  getPortForward(): PortForwardManager { return this.portForward; }
+  /**
+   * 向后兼容的工厂方法 — 从配置创建 DeviceManager
+   *
+   * @param config - Scrcpy 配置（包含 hdcPath, ip, sn, hdcPort 等）
+   * @returns 新的 DeviceManager 实例
+   */
+  static fromConfig(config: ScrcpyConfig): DeviceManager {
+    const hdc = new HdcClient({
+      hdcPath: config.hdcPath || 'hdc',
+      ip: config.ip || '127.0.0.1',
+      sn: config.sn,
+      port: config.hdcPort || DEFAULT_HDC_PORT,
+    });
+    const portForward = new PortForwardManager(hdc);
+    return new DeviceManager(hdc, portForward, config);
+  }
+
+  getHdc(): IHdcClient { return this.hdc; }
+  getPortForward(): IPortForwardManager { return this.portForward; }
   getIp(): string { return this.hdc.getIp(); }
   getSn(): string { return this.hdc.getSn(); }
   getScreenId(): number { return this.config.screenId; }
@@ -316,7 +342,7 @@ export class DeviceManager {
 
     // Kill old hdc process if any
     if (this.scrcpyHdcProcess) {
-      try { this.scrcpyHdcProcess.kill(); } catch {}
+      try { this.scrcpyHdcProcess.kill(); } catch { /* ignore cleanup errors */ }
       this.scrcpyHdcProcess = null;
     }
 
@@ -409,7 +435,7 @@ export class DeviceManager {
   async stopScrcpy(): Promise<void> {
     // Kill the hdc process to terminate scrcpy on device
     if (this.scrcpyHdcProcess) {
-      try { this.scrcpyHdcProcess.kill(); } catch {}
+      try { this.scrcpyHdcProcess.kill(); } catch { /* ignore cleanup errors */ }
       this.scrcpyHdcProcess = null;
     }
     await this.portForward.releaseAll();
@@ -463,7 +489,7 @@ export class DeviceManager {
     // 匹配 # 后面的版本号，如 UITEST_AGENT_LIBRARY@v0.0.0#1.2.2 中的 1.2.2
     const match = version.match(/#(\d{1,3}\.\d{1,3}\.\d{1,3})/);
     const deviceLink = match ? match[1]! : '0.0.0';
-    console.log(`[DeviceManager] useSecConnect: deviceLink=${deviceLink}, useSec=${this.compareVersion('1.2.0', deviceLink) <= 0}`);
+    console.log(`[DeviceManager] useSecConnect: deviceLink=${deviceLink}, useSec=${this.compareVersion(AGENT_VERSION_THRESHOLD, deviceLink) <= 0}`);
     return this.compareVersion(AGENT_VERSION_THRESHOLD, deviceLink) <= 0;
   }
 }
@@ -478,3 +504,6 @@ export function sprintf(fmt: string, ...args: (string | number)[]): string {
 
 // Re-export types for backward compatibility
 export type { ScrcpyConfig, ScreenSize } from '../types';
+
+// Re-export DeviceFactory
+export { DeviceFactory } from './factory';

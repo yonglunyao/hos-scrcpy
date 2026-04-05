@@ -1,5 +1,3 @@
-import { ChildProcess } from 'child_process';
-
 export class MockHdcClient {
   private shellResponses: Map<string, string> = new Map();
   private shellCalls: string[] = [];

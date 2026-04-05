@@ -2,6 +2,52 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.1] - 2026-04-05
+
+### 新增功能 (Added)
+
+#### 依赖注入架构
+全新的基于接口的模块化架构，支持运行时注入自定义实现：
+
+**新增核心接口**（`src/device/interfaces.ts`）：
+- `IHdcClient` — HarmonyOS Device Connector 抽象
+- `IPortForwardManager` — 端口转发抽象（TCP/abstract socket）
+- `IDeviceManager` — 设备管理抽象（20+ 方法）
+- `IUitestServer` — 输入控制抽象
+- `IScrcpyStream` — 视频流抽象
+- `IDeviceFactory` — 组件工厂抽象
+
+**新增工厂模式支持**：
+- `DeviceFactory` 实现 `IDeviceFactory` 接口
+- `HosScrcpyServer` 构造函数支持可选的 `IDeviceFactory` 参数
+- `DeviceContext` 支持可选的流工厂函数
+
+**代码改进**：
+- 移除所有类型断言（`as any`）
+- 所有组件通过接口通信
+- 支持自定义设备管理器、视频流、端口转发等实现
+
+#### 扩展能力
+- 运行时注入自定义实现
+- 简化单元测试（通过 Mock 接口）
+- 100% 类型安全（无类型断言）
+- 支持多种部署场景
+
+#### 文档更新
+- 新增 `docs/sdk-api.md` 中"依赖注入架构"章节
+- 完整的接口定义和自定义实现示例
+- Mock 实现测试示例
+
+#### 向后兼容
+- 所有组件保留静态工厂方法（`fromConfig`、`fromDeviceManager`）
+- 现有代码无需任何修改即可运行
+
+#### 代码质量
+- 新增 ESLint 配置（`eslint.config.mjs`），基于 `@typescript-eslint`
+- 新增 `npm run lint` 和 `npm run lint:fix` 命令
+- 修复所有 lint 问题：移除未使用的变量/导入、补充空 catch 块注释
+- 移除冗余文件 `test/api-verification.ts`（已被集成测试覆盖）
+
 ## [1.1.0] - 2026-04-05
 
 ### 新增功能 (Added)

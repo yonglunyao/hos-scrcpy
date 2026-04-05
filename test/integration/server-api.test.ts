@@ -4,12 +4,10 @@
  * 直接导入 HosScrcpyServer 类进行测试，不通过子进程
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { HosScrcpyServer } from '../../src/server';
 import { getDeviceSn } from '../helpers/device-check';
 import WebSocket from 'ws';
-import { promisify } from 'util';
-import { execSync } from 'child_process';
 
 const SN = getDeviceSn();
 
@@ -243,7 +241,7 @@ describe.skipIf(!SN)('HosScrcpyServer direct API', () => {
       expect(configReceived).toBe(true);
 
       // 关闭 WS 连接
-      try { ws.close(); } catch {}
+      try { ws.close(); } catch { /* ignore cleanup errors */ }
 
       // 等待一下确保断开处理完成
       await new Promise(resolve => setTimeout(resolve, 1500));

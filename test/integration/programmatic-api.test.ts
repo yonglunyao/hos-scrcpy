@@ -9,7 +9,7 @@
  * - 持久化设备行为
  */
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { ChildProcess, spawn } from 'child_process';
 import { getDeviceSn } from '../helpers/device-check';
 
@@ -53,9 +53,9 @@ describe.skipIf(!SN)('Programmatic API integration', () => {
   afterEach(async () => {
     // 每个测试后停止服务器
     if (serverProc) {
-      try { serverProc.kill('SIGTERM'); } catch {}
+      try { serverProc.kill('SIGTERM'); } catch { /* ignore cleanup errors */ }
       await new Promise(resolve => setTimeout(resolve, 500));
-      try { serverProc.kill('SIGKILL'); } catch {}
+      try { serverProc.kill('SIGKILL'); } catch { /* ignore cleanup errors */ }
       serverProc = null;
     }
     // 等待端口释放
@@ -120,7 +120,7 @@ describe.skipIf(!SN)('Programmatic API integration', () => {
                 clearTimeout(timeout);
                 setTimeout(() => resolve(), 500);
               }
-            } catch {}
+            } catch { /* ignore JSON parse errors in message handler */ }
           }
         });
 
@@ -171,7 +171,7 @@ describe.skipIf(!SN)('Programmatic API integration', () => {
                 clearTimeout(timeout);
                 setTimeout(() => resolve(), 500);
               }
-            } catch {}
+            } catch { /* ignore JSON parse errors in message handler */ }
           }
         });
 
@@ -192,7 +192,7 @@ describe.skipIf(!SN)('Programmatic API integration', () => {
       const ws2 = new WebSocket(`${WS_URL}/ws/screen/${SN}`);
       let reconnected = false;
 
-      await new Promise<void>((resolve, reject) => {
+      await new Promise<void>((resolve, _reject) => {
         const timeout = setTimeout(() => { ws2.close(); resolve(); }, 10000);
 
         ws2.on('open', () => {
@@ -208,7 +208,7 @@ describe.skipIf(!SN)('Programmatic API integration', () => {
                 clearTimeout(timeout);
                 setTimeout(() => resolve(), 500);
               }
-            } catch {}
+            } catch { /* ignore JSON parse errors in message handler */ }
           }
         });
 
@@ -247,12 +247,12 @@ describe.skipIf(!SN)('Programmatic API integration', () => {
         ws2.on('open', () => ws2.send(JSON.stringify({ type: 'screen', sn: SN, remoteIp: '127.0.0.1', remotePort: '8710' })));
 
         ws1.on('message', (data: Buffer, isBinary: boolean) => {
-          if (!isBinary) { try { if (JSON.parse(data.toString()).type === 'screenConfig') config1 = true; } catch {} }
+          if (!isBinary) { try { if (JSON.parse(data.toString()).type === 'screenConfig') config1 = true; } catch { /* ignore JSON parse errors */ } }
           else { binary1++; }
           checkDone();
         });
         ws2.on('message', (data: Buffer, isBinary: boolean) => {
-          if (!isBinary) { try { if (JSON.parse(data.toString()).type === 'screenConfig') config2 = true; } catch {} }
+          if (!isBinary) { try { if (JSON.parse(data.toString()).type === 'screenConfig') config2 = true; } catch { /* ignore JSON parse errors */ } }
           else { binary2++; }
           checkDone();
         });
@@ -323,7 +323,7 @@ describe.skipIf(!SN)('Programmatic API integration', () => {
                 ws.send(JSON.stringify({ type: 'stop', sn: SN }));
                 setTimeout(() => { ws.close(); resolve(); }, 500);
               }
-            } catch {}
+            } catch { /* ignore JSON parse errors in message handler */ }
           }
         });
 

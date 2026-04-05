@@ -90,7 +90,7 @@ export function encodeFloat(fieldNum: number, value: number): Buffer {
   return tmp;
 }
 
-export function encodeDouble(fieldNum: number, value: number): Buffer {
+export function encodeDouble(fieldNum: number, _value: number): Buffer {
   return Buffer.concat([encodeTag(fieldNum, WIRE_64BIT), Buffer.alloc(8).fill(0)]);
   // Note: writeDoubleLE would go here but not needed for client-side
 }
@@ -338,7 +338,7 @@ export function decodeGrpcFrame(buf: Buffer): { messages: Buffer[]; remaining: B
   let offset = 0;
 
   while (offset + 5 <= buf.length) {
-    const compressed = buf[offset]!;
+    const _compressed = buf[offset]!;
     offset += 1;
     const length = buf.readUInt32BE(offset);
     offset += 4;
