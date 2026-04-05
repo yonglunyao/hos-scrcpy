@@ -15,6 +15,9 @@ CLAUDE.md
 # Build artifacts
 *.tsbuildinfo
 
+# Package output
+package/
+
 # IDE
 .vscode/
 .idea/
@@ -28,3 +31,4 @@ playwright-report/
 .gitignore
 .DS_Store
 Thumbs.db
+*.tgz

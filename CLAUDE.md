@@ -6,19 +6,51 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 npm run build       # tsc + copy SO assets to dist/
+npm run clean       # remove dist/, package/, coverage/, test-results/
 npm start           # node dist/bin/server.js
 npm run dev         # ts-node src/bin/server.ts (development)
 npm run ui          # start server + open web UI in browser
+npm run pack        # build + create tgz in package/ directory
 npx tsc --noEmit    # type-check only
 ```
 
 CLI options: `--hdc <path>` (default: `hdc`), `--port <port>` (default: `9523`), `--templates <dir>`
 
-Requires `hdc` (HarmonyOS Device Connector) on PATH or specified via `--hdc`. No test framework is configured.
+Requires `hdc` (HarmonyOS Device Connector) on PATH or specified via `--hdc`.
+
+## Tests
+
+```bash
+npm run test:unit      # 122 unit tests (vitest)
+npm run test:integration # 36 integration tests (requires device)
+npm test                # all tests
+```
+
+**Note**: Integration tests require a connected HarmonyOS device. Avoid rapid test cycles (< 3s between device operations) to prevent resource exhaustion on the device.
 
 ## Architecture
 
 hos-scrcpy is a TypeScript replacement for `demoWithoutRecord.jar` — a HarmonyOS screen casting server. It connects to HarmonyOS devices via HDC, loads native SO extensions into the uitest daemon, and streams H.264 video over WebSocket.
+
+### v1.1.0: Programmatic API
+
+The server now supports programmatic device management for framework integration:
+
+```typescript
+import { HosScrcpyServer } from 'hos-scrcpy';
+
+const server = new HosScrcpyServer({ port: 0 });  // Dynamic port allocation
+await server.start();
+console.log('Port:', server.getPort());           // Get actual port
+
+// Event-driven device management
+await server.startDevice('DEVICE_SN');           // Start casting programmatically
+server.isCasting('DEVICE_SN');                   // true
+await server.stopDevice('DEVICE_SN');            // Stop casting
+await server.stopAll();                           // Stop all devices
+```
+
+**Persistent devices**: Devices started via `startDevice()` remain active even without WebSocket clients. Only `stopDevice()` or `stopAll()` terminates them. This enables event-driven frameworks to manage device lifecycle independently of client connections.
 
 ### Protocol Stack
 
@@ -36,12 +68,11 @@ Web Browser ←WebSocket→ HosScrcpyServer ←gRPC (h2c)→ uitest daemon (on d
 
 | Module | Purpose |
 |--------|---------|
-| `src/server.ts` | HTTP + WebSocket server, device lifecycle (`DeviceContext`), message routing |
+| `src/server.ts` | HTTP + WebSocket server, programmatic API, device lifecycle (`DeviceContext`), message routing |
 | `src/device/hdc.ts` | HDC CLI wrapper (`shell`, `spawnShell`, `pushFile`, `fport`) |
 | `src/device/manager.ts` | SO version matching (MD5), scrcpy process management, startup orchestration (`startScrcpyWithForward`) |
 | `src/device/port-forward.ts` | Mutex-guarded `hdc fport` create/remove for TCP and abstract sockets |
 | `src/capture/direct-scrcpy.ts` | **Active** gRPC client using Node.js `http2` (h2c prior knowledge). Parses 5-byte gRPC frames + hand-written protobuf. |
-| `src/capture/scrcpy.ts` | Alternative gRPC client using `@grpc/grpc-js` (less reliable with HarmonyOS gRPC). |
 | `src/capture/protobuf.ts` | Hand-written protobuf codec for `ReplyMessage`, `ParamValue`, `ReplyEndMessage` — no .proto compilation needed. |
 | `src/input/uitest.ts` | TCP socket client to uitest agent. Plain JSON for input events; HEAD/TAIL framed JSON for layout queries. |
 | `src/input/keycode.ts` | Browser key → HDC key code mapping |
@@ -65,6 +96,16 @@ Clients connect to `/ws/screen/{sn}` and send JSON:
 - `{"type":"stop","sn":"..."}` — stop capture
 
 Video frames are sent as raw binary WebSocket messages (H.264 NALUs extracted from protobuf `payload["data"].val_bytes`). Server sends `{ type: 'screenConfig', scale: N }` JSON message when stream is ready.
+
+**Late-join clients**: When a WS client connects after the stream is already active, the server immediately sends the `screenConfig` message so the client can start receiving video frames without waiting.
+
+### HTTP Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/devices` | List connected devices |
+| `GET /api/status[?sn=xxx]` | Query casting status (all devices or specific SN) |
+| `GET /webview/*` | Static file serving for plugin webview |
 
 ### gRPC Service (on device)
 
@@ -96,4 +137,11 @@ The Java reference implementation lives at `../demoWithoutRecord/`. Key files fo
 - `Scrcpy.java` / `test.proto` — protobuf definitions
 - `HosRemoteConfig.java` — default parameters
 
-Protocol documentation: `docs/scrcpy-protocol.md`
+### Documentation
+
+- `README.md` - Project overview and quick start
+- `docs/sdk-api.md` - Complete API reference with integration examples
+- `docs/scrcpy-protocol.md` - Protocol specification
+- `docs/integration-tests.md` - Test coverage documentation
+- `docs/resource-exhaustion-analysis.md` - Device resource management analysis
+- `CHANGELOG.md` - Version history

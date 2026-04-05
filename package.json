@@ -13,9 +13,11 @@
   ],
   "scripts": {
     "build": "tsc && node scripts/build.js",
+    "clean": "node scripts/clean.js",
     "start": "node dist/bin/server.js",
     "ui": "node scripts/start-ui.js",
     "dev": "ts-node src/bin/server.ts",
+    "pack": "npm run build && node scripts/pack.js",
     "prepublishOnly": "npm run build",
     "test": "vitest run",
     "test:unit": "vitest run --dir test/unit",
