@@ -8,12 +8,15 @@ import * as http from 'http';
 import { WebSocketServer } from 'ws';
 import { DeviceContext } from '../device/context';
 import { DeviceFactory, IDeviceFactory } from '../device/factory';
+import { createChildLogger } from '../shared/logger';
 import type { ServerConfig } from '../shared/types';
 import { DEFAULT_SERVER_PORT, DEFAULT_HDC_PORT, DEFAULT_SCALE, DEFAULT_FRAME_RATE, DEFAULT_BIT_RATE_MBPS } from '../constants';
 import { HttpHandler } from './http-handler';
 import { WsHandler } from './ws-handler';
 // Re-export for backward compatibility
 export { getContentType } from './static-files';
+
+const logger = createChildLogger('HosScrcpyServer');
 
 export class HosScrcpyServer {
   private httpServer: http.Server;
@@ -46,13 +49,13 @@ export class HosScrcpyServer {
     const wss = new WebSocketServer({ noServer: true });
     this.httpServer.on('upgrade', (req, socket, head) => {
       const url = req.url || '/';
-      console.log(`[HTTP] WebSocket upgrade request: ${url}`);
+      logger.debug({ url }, 'WebSocket upgrade request');
       if (url.startsWith('/ws/')) {
         wss.handleUpgrade(req, socket, head, (ws) => {
           wss.emit('connection', ws, req);
         });
       } else {
-        console.log(`[HTTP] WebSocket upgrade rejected: ${url} doesn't start with /ws/`);
+        logger.warn({ url }, 'WebSocket upgrade rejected');
         socket.destroy();
       }
     });
@@ -72,14 +75,14 @@ export class HosScrcpyServer {
           this.resolvedPort = this.config.port || DEFAULT_SERVER_PORT;
         }
         const url = `http://${this.config.host === '0.0.0.0' ? 'localhost' : this.config.host}:${this.resolvedPort}`;
-        console.log(`\n✓ HosScrcpyServer started at ws://${this.config.host}:${this.resolvedPort}`);
-        console.log(`\n  🌐 前端访问地址:`);
-        console.log(`     ${url}`);
-        console.log(`\n  📡 可用接口:`);
-        console.log(`     GET  /api/devices          - 获取设备列表`);
-        console.log(`     GET  /api/status           - 获取投屏状态`);
-        console.log(`     WS   /ws/screen/{sn}       - 投屏连接`);
-        console.log(`     WS   /ws/uitest/{sn}       - UiTest 模式\n`);
+        logger.info({ port: this.resolvedPort, url }, 'HosScrcpyServer started');
+        logger.info('  🌐 前端访问地址:');
+        logger.info(`     ${url}`);
+        logger.info('  📡 可用接口:');
+        logger.info('     GET  /api/devices          - 获取设备列表');
+        logger.info('     GET  /api/status           - 获取投屏状态');
+        logger.info('     WS   /ws/screen/{sn}       - 投屏连接');
+        logger.info('     WS   /ws/uitest/{sn}       - UiTest 模式');
         resolve();
       });
     });
@@ -88,13 +91,14 @@ export class HosScrcpyServer {
   async stop(): Promise<void> {
     await this.stopAll();
     this.httpServer.close();
+    logger.info('HosScrcpyServer stopped');
   }
 
   async startDevice(sn: string): Promise<void> {
     let ctx = this.devices.get(sn);
     if (ctx) {
       if (ctx.isScrcpyStarted()) {
-        console.log(`[HosScrcpyServer] Device ${sn} already casting`);
+        logger.debug({ sn }, 'Device already casting');
         return;
       }
     } else {
@@ -113,19 +117,19 @@ export class HosScrcpyServer {
     }
 
     await ctx.startScreenCast();
-    console.log(`[HosScrcpyServer] Device ${sn} casting started`);
+    logger.info({ sn }, 'Device casting started');
   }
 
   async stopDevice(sn: string): Promise<void> {
     const ctx = this.devices.get(sn);
     if (!ctx) {
-      console.log(`[HosScrcpyServer] Device ${sn} not casting`);
+      logger.debug({ sn }, 'Device not casting');
       return;
     }
 
     await ctx.stop();
     this.devices.delete(sn);
-    console.log(`[HosScrcpyServer] Device ${sn} stopped`);
+    logger.info({ sn }, 'Device stopped');
   }
 
   async stopAll(): Promise<void> {
@@ -135,7 +139,7 @@ export class HosScrcpyServer {
     }
     await Promise.all(promises);
     this.devices.clear();
-    console.log(`[HosScrcpyServer] All devices stopped`);
+    logger.info('All devices stopped');
   }
 
   isCasting(sn: string): boolean {

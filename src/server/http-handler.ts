@@ -3,8 +3,11 @@
  */
 
 import * as http from 'http';
+import { createChildLogger } from '../shared/logger';
 import type { ServerConfig } from '../shared/types';
 import { serveStaticFile, getDefaultHtml } from './static-files';
+
+const logger = createChildLogger('HttpHandler');
 
 export class HttpHandler {
   constructor(
@@ -15,7 +18,7 @@ export class HttpHandler {
 
   async handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     const url = req.url || '/';
-    console.log(`[HTTP] ${req.method} ${url}`);
+    logger.debug(`[HTTP] ${req.method} ${url}`);
 
     if (url === '/api/devices' || url === '/api/devices/') {
       await this.handleApiDevices(req, res);

@@ -21,6 +21,7 @@ export class DeviceContext {
   private scrcpyStarted = false;
   private startLock: Promise<void> | null = null;
   private persistent: boolean = false;  // 持久化标记：无 WS 客户端时也保持投屏
+  private captureIntervals = new WeakMap<WebSocket, NodeJS.Timeout>();
 
   /**
    * 依赖注入构造函数 — 接收已创建的依赖
@@ -211,6 +212,7 @@ export class DeviceContext {
     const captureInterval = setInterval(async () => {
       if (this.activeCastType !== 'uitest') {
         clearInterval(captureInterval);
+        this.captureIntervals.delete(ws);
         return;
       }
 
@@ -229,8 +231,8 @@ export class DeviceContext {
       }
     }, UITEST_CAPTURE_INTERVAL_MS); // 2 FPS
 
-    // Store interval for cleanup
-    (ws as any).captureInterval = captureInterval;
+    // Store interval for cleanup using WeakMap
+    this.captureIntervals.set(ws, captureInterval);
   }
 
   async stopCast(): Promise<void> {
@@ -247,16 +249,20 @@ export class DeviceContext {
    * Stop capture interval for a specific WebSocket
    */
   stopCaptureForWs(ws: WebSocket): void {
-    const interval = (ws as any).captureInterval;
+    const interval = this.captureIntervals.get(ws);
     if (interval) {
       clearInterval(interval);
-      delete (ws as any).captureInterval;
+      this.captureIntervals.delete(ws);
     }
   }
 
   async stop(): Promise<void> {
     await this.stopCast();
     await this.uitest.stop();
+    // 清理所有 capture intervals
+    for (const ws of this.wsClients.values()) {
+      this.stopCaptureForWs(ws);
+    }
     // 关闭所有 WebSocket 连接
     for (const [_id, ws] of this.wsClients) {
       if (ws.readyState === WebSocket.OPEN) {

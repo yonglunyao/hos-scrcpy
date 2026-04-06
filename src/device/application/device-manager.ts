@@ -26,6 +26,9 @@ import {
   SCRPCY_KILL_DELAY_MS,
   SCRPCY_START_RETRY_DELAY_MS,
   AGENT_VERSION_THRESHOLD,
+  SCREENSHOT_TIMEOUT_SEC,
+  WAKEUP_TIMEOUT_SEC,
+  FILE_CHECK_TIMEOUT_SEC,
 } from '../../constants';
 import { VersionMatcher } from '../domain/version';
 import { SoVersionMatcher, SCRCPY_SO_LIST, SCRCPY_SEC_SO_LIST } from '../domain/so-matcher';
@@ -231,7 +234,7 @@ export class DeviceManager implements IDeviceManager {
   getIsUseSecSo(): boolean { return this.isUseSecSo; }
 
   async getScreenSize(): Promise<ScreenSize> {
-    const result = await this.hdc.shell('snapshot_display -f /data/local/tmp/screen.jpeg', 5);
+    const result = await this.hdc.shell('snapshot_display -f /data/local/tmp/screen.jpeg', SCREENSHOT_TIMEOUT_SEC);
     const match = result.match(/width[: ]+(\d+),\s*height[: ]+(\d+)/);
     if (match) {
       return { width: parseInt(match[1]!, 10), height: parseInt(match[2]!, 10) };
@@ -240,16 +243,16 @@ export class DeviceManager implements IDeviceManager {
   }
 
   async wakeUp(): Promise<void> {
-    await this.hdc.shell('power-shell wakeup', 5);
+    await this.hdc.shell('power-shell wakeup', WAKEUP_TIMEOUT_SEC);
   }
 
   async isCloudDevice(): Promise<boolean> {
-    const result = await this.hdc.shell('file /system/lib64/libCPHMediaEngine.z.so', 5);
+    const result = await this.hdc.shell('file /system/lib64/libCPHMediaEngine.z.so', FILE_CHECK_TIMEOUT_SEC);
     return !result.includes('No such file or directory');
   }
 
   async useSecConnect(): Promise<boolean> {
-    const result = await this.hdc.shell('cat /data/local/tmp/agent.so | grep -a UITEST_AGENT_LIBRARY ', 5);
+    const result = await this.hdc.shell('cat /data/local/tmp/agent.so | grep -a UITEST_AGENT_LIBRARY ', FILE_CHECK_TIMEOUT_SEC);
     const version = result.trim();
     const match = version.match(/#(\d{1,3}\.\d{1,3}\.\d{1,3})/);
     const deviceLink = match ? match[1]! : '0.0.0';

@@ -22,3 +22,6 @@ export type { ServerConfig, ScrcpyConfig, ScreenSize, HdcOptions } from './share
 
 // Re-export interfaces
 export type { IHdcClient, IDeviceManager, IUitestServer } from './device/interfaces';
+
+// Re-export logger
+export { logger, createChildLogger } from './shared/logger';

@@ -264,6 +264,7 @@
                     </div>
                     <div class="status-row"><span class="status-label">设备</span><span class="status-value" id="deviceSN">-</span></div>
                     <div class="status-row"><span class="status-label">分辨率</span><span class="status-value" id="resolution">-</span></div>
+                    <div class="status-row"><span class="status-label">帧率</span><span class="status-value" id="fps">-</span></div>
                     <div class="status-row"><span class="status-label">帧数</span><span class="status-value" id="frameCount">0</span></div>
                     <div class="status-row"><span class="status-label">延迟</span><span class="status-value" id="bufferDelay">-</span></div>
                     <div class="status-row"><span class="status-label">码率</span><span class="status-value" id="bitrate">-</span></div>
@@ -307,6 +308,7 @@
         let jmuxer = null;
         let bufferCheckInterval = null;
         let bitrateInterval = null;
+        let fpsInterval = null;
         let videoWidth = 0;
         let videoHeight = 0;
         let screenScale = 1;
@@ -315,6 +317,8 @@
         let lastTouchPos = { x: 0, y: 0 };
         let currentVideoCoords = { x: 0, y: 0 };
         let mouseDownPos = null;
+        let fpsFrameCount = 0;
+        let fpsLastUpdateTime = 0;
 
         function log(message, type = 'info') {
             const logBox = document.getElementById('logBox');
@@ -451,6 +455,7 @@
                 if (event.data instanceof ArrayBuffer) {
                     const data = new Uint8Array(event.data);
                     frameCount++;
+                    fpsFrameCount++;
                     totalBytes += data.length;
                     document.getElementById('frameCount').textContent = frameCount;
                     if (frameCount % 30 === 0) log(`已接收 ${frameCount} 帧 (${data.length} bytes)`, 'info');
@@ -471,8 +476,12 @@
             if (bufferCheckInterval) { clearInterval(bufferCheckInterval); bufferCheckInterval = null; }
             if (uptimeTimer) { clearInterval(uptimeTimer); uptimeTimer = null; }
             if (bitrateInterval) { clearInterval(bitrateInterval); bitrateInterval = null; }
+            if (fpsInterval) { clearInterval(fpsInterval); fpsInterval = null; }
             totalBytes = 0;
+            fpsFrameCount = 0;
+            fpsLastUpdateTime = 0;
             document.getElementById('bitrate').textContent = '-';
+            document.getElementById('fps').textContent = '-';
             document.getElementById('resolution').textContent = '-';
             document.getElementById('startBtn').disabled = false;
             document.getElementById('stopBtn').disabled = true;
@@ -501,6 +510,22 @@
                     const bps = (totalBytes * 8) / elapsed;
                     const kbps = (bps / 1024).toFixed(1);
                     document.getElementById('bitrate').textContent = kbps + ' Kbps';
+                }
+            }, 1000);
+
+            // 帧率计算 (每秒更新)
+            fpsLastUpdateTime = Date.now();
+            fpsFrameCount = 0;
+            if (fpsInterval) clearInterval(fpsInterval);
+            fpsInterval = setInterval(() => {
+                if (!casting) return;
+                const now = Date.now();
+                const elapsed = (now - fpsLastUpdateTime) / 1000;
+                if (elapsed > 0) {
+                    const fps = Math.round(fpsFrameCount / elapsed);
+                    document.getElementById('fps').textContent = fps;
+                    fpsFrameCount = 0;
+                    fpsLastUpdateTime = now;
                 }
             }, 1000);
         }
