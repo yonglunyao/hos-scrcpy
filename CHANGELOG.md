@@ -2,6 +2,48 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.2] - 2026-04-06
+
+### 新增功能 (Added)
+
+#### Web 界面帧率显示
+- 实时帧率 (FPS) 显示，位于状态面板中
+- 每秒自动计算并更新视频帧率
+- 停止投屏时正确重置帧率显示
+- 重新开始投屏时自动重新计算
+
+### 代码质量优化 (Improved)
+
+#### 结构化日志
+- 新增 `src/shared/logger.ts` 基于 pino 的日志模块
+- 开发环境使用 pino-pretty 美化输出
+- 生产环境使用 JSON 格式日志
+- 支持子日志创建（带组件上下文）
+- 日志级别可通过 LOG_LEVEL 环境变量配置
+
+#### WebSocket 消息类型安全
+- 新增 `WsMessage` 和 `WsMessageData` 接口
+- 完整的消息类型验证（screen/uitest/touchEvent/keyCode/stop）
+- 错误响应发送给客户端
+
+#### 资源管理优化
+- 使用 WeakMap 管理 WebSocket 关联的 interval
+- 防止内存泄漏，自动垃圾回收
+- 停止投屏时正确清理所有定时器
+
+#### 代码规范化
+- 超时参数常量化（SCREENSHOT_TIMEOUT_SEC、WAKEUP_TIMEOUT_SEC 等）
+- 统一使用常量替代硬编码值
+- ESLint 配置优化（.eslintrc.json）
+
+### Bug 修复 (Fixed)
+- 修复 ServerHelper 类型未导出问题
+- 修复 logger.error() 参数格式问题
+- 修复 ESLint 未使用变量警告
+
+### 依赖更新 (Dependencies)
+- 新增 pino 和 pino-pretty 日志库
+
 ## [1.1.1] - 2026-04-05
 
 ### 新增功能 (Added)
