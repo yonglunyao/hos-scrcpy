@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.0] - 2026-04-06
+
+### 新增功能 (Added)
+
+#### 录屏和截屏功能
+- **截屏功能**: 一键捕获当前视频帧并保存为 PNG 图片
+  - 使用 Canvas API 绘制视频帧
+  - 自动下载到本地，文件名包含设备名和时间戳
+  - 格式: `screenshot_{设备SN}_{时间戳}.png`
+
+- **录屏功能**: 实时录制视频流
+  - 使用 MediaRecorder API 捕获视频流
+  - 支持 VP9/VP8/WebM 格式（自动选择浏览器支持的最佳格式）
+  - 输出格式: WebM
+  - 实时显示录制时长在按钮上
+  - 自动下载，文件名包含设备名、时间戳和时长
+  - 格式: `recording_{设备SN}_{时间戳}_{分秒}.webm`
+
+#### UI 改进
+- 新增"录屏截屏"控制面板
+- 录屏中按钮变红色，显示 `⏹ 停止 (MM:SS)`
+- 投屏停止时自动停止录屏并禁用按钮
+
+### 技术实现
+- 截屏: `canvas.toBlob()` 转换为 PNG
+- 录屏: `video.captureStream()` + `MediaRecorder`
+- 浏览器兼容性检测和降级处理
+
+## [1.1.2] - 2026-04-06
+
 ## [1.1.2] - 2026-04-06
 
 ### 新增功能 (Added)
