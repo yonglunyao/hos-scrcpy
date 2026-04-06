@@ -1,7 +1,7 @@
 import * as http2 from 'http2';
 import { IDeviceManager, IScrcpyStream } from '../device/interfaces';
 import { decodeReplyMessage } from './protobuf';
-import { ConnectionTimeoutError, ScrcpyStartupError } from '../errors';
+import { ConnectionTimeoutError, ScrcpyStartupError } from '../shared/errors';
 import {
   HTTP2_CONNECT_TIMEOUT_MS,
   HTTP2_INITIAL_WINDOW_SIZE,

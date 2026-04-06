@@ -1,5 +1,5 @@
 import { ChildProcess } from 'child_process';
-import type { ScrcpyConfig } from '../types';
+import type { ScrcpyConfig } from '../shared/types';
 
 /**
  * HDC 客户端接口 — HarmonyOS Device Connector 抽象

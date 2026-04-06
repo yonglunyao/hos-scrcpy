@@ -1,6 +1,13 @@
+/**
+ * UiTest 输入控制服务 — 通过 TCP socket 与 uitest agent 通信
+ *
+ * 协议编解码委托给 uitest-protocol.ts
+ * TCP 连接管理委托给 uitest-socket.ts
+ */
+
 import * as net from 'net';
-import { IDeviceManager, IUitestServer } from '../device/interfaces';
-import { DeviceNotFoundError } from '../errors';
+import { IDeviceManager, IUitestServer } from '../../device/interfaces';
+import { DeviceNotFoundError } from '../../shared/errors';
 import {
   AGENT_SERVER_PORT,
   UITEST_SPLIT_VERSION,
@@ -10,8 +17,15 @@ import {
   UITEM_TYPE_CHECK_TIMEOUT_SEC,
   UITEM_START_TIMEOUT_SEC,
   UITEST_LAYOUT_REQUEST_TIMEOUT_MS,
-  // AGENT_VERSION_THRESHOLD is now defined in device/manager.ts
-} from '../constants';
+} from '../../constants';
+import {
+  buildGesturesRequest,
+  buildModuleRequest,
+  buildCallHypiumRequest,
+  buildLayoutFrame,
+  parseLayoutResponse,
+} from './uitest-protocol';
+import { connectSocket, closeSocket, sendRequest, sendLayoutRequest } from './uitest-socket';
 
 const AGENT_NAMES: Record<string, string> = {
   x86_64: 'uitest_agent_x86_1.1.9.so',
@@ -21,13 +35,6 @@ const AGENT_NAMES: Record<string, string> = {
   sec: 'uitest_agent_1.2.2.so',
 };
 
-const HEAD = Buffer.from('_uitestkit_rpc_message_head_', 'utf-8');
-const TAIL = Buffer.from('_uitestkit_rpc_message_tail_', 'utf-8');
-const AUX_MAGIC = 1145141919;
-
-/**
- * UiTest 输入控制 — 通过 TCP socket 与 uitest agent 通信
- */
 export class UitestServer implements IUitestServer {
   protected device: IDeviceManager;
   private socket: net.Socket | null = null;
@@ -38,62 +45,42 @@ export class UitestServer implements IUitestServer {
   private isRunning = false;
   private isUseSec = false;
 
-  /**
-   * 依赖注入构造函数 — 接收已创建的设备管理器
-   *
-   * @param device - 设备管理器实例
-   */
   constructor(device: IDeviceManager) {
     this.device = device;
   }
 
-  /**
-   * 向后兼容的工厂方法 — 从 IDeviceManager 创建
-   *
-   * @param device - IDeviceManager 实例
-   * @returns 新的 UitestServer 实例
-   */
   static fromDeviceManager(device: IDeviceManager): UitestServer {
     return new UitestServer(device);
   }
 
   isUitestRunning(): boolean { return this.isRunning; }
 
-  /**
-   * 初始化并启动 uitest 服务
-   */
   async start(): Promise<void> {
     if (!await this.device.isOnline()) {
       throw new DeviceNotFoundError(this.device.getSn());
     }
 
-    // 如果已经在运行，先停止
     if (this.isRunning) {
       await this.stop();
     }
 
     await this.initSoResource();
     await this.startUitest();
-    // 使用接口方法
     this.isUseSec = await this.device.useSecConnect();
     await this.startService();
     this.isReady = true;
     this.isRunning = true;
   }
 
-  /**
-   * 停止 uitest 服务
-   */
   async stop(): Promise<void> {
     this.isRunning = false;
-    this.closeSocket(this.socket);
+    closeSocket(this.socket);
     this.socket = null;
-    this.closeSocket(this.layoutSocket);
+    closeSocket(this.layoutSocket);
     this.layoutSocket = null;
 
     const pf = this.device.getPortForward();
     if (pf) {
-      // 尝试移除端口转发（两种模式都尝试）
       if (this.forwardedPort !== -1) {
         await pf.releaseAll();
         this.forwardedPort = -1;
@@ -101,16 +88,12 @@ export class UitestServer implements IUitestServer {
       }
     }
 
-    // 清理设备上的 uitest agent 进程
     const pids = await this.getUitestPids();
     for (const pid of pids) {
       await this.device.shell(`kill -9 ${pid}`, 5);
     }
   }
 
-  /**
-   * 发送触摸事件
-   */
   async touchDown(x: number, y: number): Promise<void> {
     await this.sendTouch('touchDown', x, y);
   }
@@ -123,9 +106,6 @@ export class UitestServer implements IUitestServer {
     await this.sendTouch('touchMove', x, y);
   }
 
-  /**
-   * 鼠标事件
-   */
   async mouseDown(type: 'mouseLeft' | 'mouseMiddle' | 'mouseRight', x: number, y: number): Promise<void> {
     const apiMap: Record<string, string> = {
       mouseLeft: 'ButtonLeftDown',
@@ -165,94 +145,76 @@ export class UitestServer implements IUitestServer {
     await this.sendTouch('AxisStop', x, y);
   }
 
-  /**
-   * 输入文本
-   */
   async inputText(x: number, y: number, content: string): Promise<void> {
-    const request = this.buildCallHypiumRequest('Driver.inputText', [[{ x, y }, content]]);
-    await this.sendRequest(request);
+    const request = buildCallHypiumRequest('Driver.inputText', [[{ x, y }, content]]);
+    await this.doSendRequest(request);
   }
 
-  /**
-   * 获取 UI 布局
-   */
   async getLayout(): Promise<string> {
     const params = { api: 'captureLayout' };
-    const request = this.buildModuleRequest('Captures', params);
-    return await this.sendLayoutRequest(request);
+    const request = buildModuleRequest('Captures', params);
+    return await this.doSendLayoutRequest(request);
   }
 
-  /**
-   * 获取屏幕尺寸
-   */
   async getScreenSize(): Promise<{ width: number; height: number }> {
     try {
-      // 使用正确的 API 调用格式
-      const request = this.buildModuleRequest('Display', { api: 'getResolution' });
-      const result = await this.sendRequest(request);
+      const request = buildModuleRequest('Display', { api: 'getResolution' });
+      const result = await this.doSendRequest(request);
       const resp = JSON.parse(result);
       const r = resp.result;
       if (r && typeof r.width === 'number' && typeof r.height === 'number') {
         return { width: r.width, height: r.height };
       }
-      // 尝试其他格式
       if (r && r.x && r.y) {
         return { width: parseInt(r.x, 10), height: parseInt(r.y, 10) };
       }
     } catch (e) {
       console.warn('[UitestServer] getScreenSize error:', (e as Error).message);
     }
-    // Return default size for common HarmonyOS devices
     console.log('[UitestServer] Using default screen size: 1080x2340');
     return { width: 1080, height: 2340 };
   }
 
-  /**
-   * 设置屏幕方向
-   */
   async setRotation(rotation: number): Promise<void> {
-    const request = this.buildCallHypiumRequest('Driver.setDisplayRotation', [rotation]);
-    await this.sendRequest(request);
+    const request = buildCallHypiumRequest('Driver.setDisplayRotation', [rotation]);
+    await this.doSendRequest(request);
   }
 
-  /**
-   * 截图
-   */
   async captureScreen(savePath: string, displayId = 0): Promise<void> {
     const params = { api: 'captureScreen', args: { displayId, savePath } };
-    const request = this.buildModuleRequest('Captures', params);
-    await this.sendRequest(request);
+    const request = buildModuleRequest('Captures', params);
+    await this.doSendRequest(request);
   }
 
-  /**
-   * 发送按键事件（通过 uitest）
-   */
   async pressKey(keyCode: number): Promise<boolean> {
-    // HarmonyOS 键码映射 — 仅 HOME/BACK 通过 uitest API
     const keyMap: Record<number, string> = {
       3: 'pressHome',
       4: 'pressBack',
     };
     const api = keyMap[keyCode];
     if (api) {
-      const request = this.buildCallHypiumRequest(`Driver.${api}`, []);
-      await this.sendRequest(request);
+      const request = buildCallHypiumRequest(`Driver.${api}`, []);
+      await this.doSendRequest(request);
       return true;
     }
     return false;
   }
 
-  // ========== Private methods ==========
+  // ── 公开的协议构建方法（供测试使用） ──
+
+  buildGesturesRequest = buildGesturesRequest;
+  buildModuleRequest = buildModuleRequest;
+  buildCallHypiumRequest = buildCallHypiumRequest;
+
+  // ── 私有方法 ──
 
   private async startUitest(): Promise<void> {
-    // 检查基础 uitest daemon 是否已在运行
     const pids = await this.getUitestPids();
     if (pids.length > 0) {
       console.log('[UitestServer] uitest daemon already running');
       return;
     }
 
-    // 启动新的基础 uitest daemon
     await this.device.shell('/system/bin/uitest start-daemon singleness &', UITEM_START_TIMEOUT_SEC);
     await new Promise(r => setTimeout(r, UITEM_START_DELAY_MS));
 
@@ -280,7 +242,6 @@ export class UitestServer implements IUitestServer {
   }
 
   private async initSoResource(): Promise<void> {
-    // 检测设备类型和 uitest 版本来选择 agent SO
     const typeResult = await this.device.shell('file /system/bin/uitest', UITEM_TYPE_CHECK_TIMEOUT_SEC);
     const versionResult = await this.device.getUitestVersion();
 
@@ -297,7 +258,6 @@ export class UitestServer implements IUitestServer {
       agentName = AGENT_NAMES.sec;
     }
 
-    // 检查设备上 agent 版本，避免不必要的推送
     const deviceVersionResult = await this.device.shell('cat /data/local/tmp/agent.so | grep -a UITEST_AGENT_LIBRARY ', 5);
     const agentVersion = deviceVersionResult.trim();
     let deviceLink = '0.0.0';
@@ -306,11 +266,9 @@ export class UitestServer implements IUitestServer {
       deviceLink = match ? match[1]! : '0.0.0';
     }
 
-    // 从 agentName 中提取本地版本号
     const localLink = agentName.substring(agentName.lastIndexOf('_') + 1, agentName.lastIndexOf('.'));
     console.log(`[UitestServer] local agent: ${agentName} (v${localLink}), device agent: v${deviceLink}`);
 
-    // 比较版本：本地 > 设备时需要更新
     const localParts = localLink.split('.');
     const deviceParts = deviceLink.split('.');
     const minLen = Math.min(localParts.length, deviceParts.length);
@@ -321,7 +279,6 @@ export class UitestServer implements IUitestServer {
       if (l > d) { needUpdate = true; break; }
       if (l < d) { break; }
     }
-    // 次版本号不同也需要更新
     if (localParts.length > 1 && deviceParts.length > 1 && localParts[1] !== deviceParts[1]) {
       needUpdate = true;
     }
@@ -331,7 +288,6 @@ export class UitestServer implements IUitestServer {
       return;
     }
 
-    // 推送 agent SO
     console.log('[UitestServer] updating agent SO...');
     await this.device.pushSo(agentName, '/data/local/tmp/agent.so');
   }
@@ -342,7 +298,6 @@ export class UitestServer implements IUitestServer {
       throw new Error('PortForwardManager not available');
     }
 
-    // 创建数据端口转发
     let forward;
     if (this.isUseSec) {
       forward = await pf.createAbstractForward('uitest_socket');
@@ -350,9 +305,8 @@ export class UitestServer implements IUitestServer {
       forward = await pf.createTcpForward(AGENT_SERVER_PORT);
     }
     this.forwardedPort = forward.localPort;
-    this.socket = await this.connectSocket(this.forwardedPort);
+    this.socket = await connectSocket(this.forwardedPort);
 
-    // 创建布局端口转发
     let layoutForward;
     if (this.isUseSec) {
       layoutForward = await pf.createAbstractForward('uitest_socket');
@@ -360,155 +314,23 @@ export class UitestServer implements IUitestServer {
       layoutForward = await pf.createTcpForward(AGENT_SERVER_PORT);
     }
     this.forwardedLayoutPort = layoutForward.localPort;
-    this.layoutSocket = await this.connectSocket(this.forwardedLayoutPort);
-  }
-
-  private async allocatePort(): Promise<number> {
-    return new Promise((resolve, reject) => {
-      const server = net.createServer();
-      server.listen(0, '127.0.0.1', () => {
-        const port = server.address() as { port: number };
-        server.close(() => resolve(port.port));
-      });
-      server.on('error', reject);
-    });
-  }
-
-  private connectSocket(port: number): Promise<net.Socket> {
-    return new Promise((resolve, reject) => {
-      const sock = new net.Socket();
-      sock.setNoDelay(true);
-      sock.connect(port, '127.0.0.1', () => resolve(sock));
-      sock.on('error', reject);
-    });
-  }
-
-  private closeSocket(sock: net.Socket | null): void {
-    if (sock) {
-      try { sock.destroy(); } catch { /* ignore cleanup errors */ }
-    }
+    this.layoutSocket = await connectSocket(this.forwardedLayoutPort);
   }
 
   private async sendTouch(api: string, x: number, y: number): Promise<void> {
     if (!this.isRunning) return;
-    const request = this.buildGesturesRequest(api, { x, y });
-    await this.sendRequest(request);
+    const request = buildGesturesRequest(api, { x, y });
+    await this.doSendRequest(request);
   }
 
-  buildGesturesRequest(api: string, args: Record<string, number>): string {
-    return JSON.stringify({
-      module: 'com.ohos.devicetest.hypiumApiHelper',
-      method: 'Gestures',
-      params: { api, args },
-    });
+  private async doSendRequest(request: string): Promise<string> {
+    const text = await sendRequest(this.socket, this.isReady, request);
+    return parseLayoutResponse(text);
   }
 
-  buildModuleRequest(method: string, params: Record<string, unknown>): string {
-    return JSON.stringify({
-      module: 'com.ohos.devicetest.hypiumApiHelper',
-      method,
-      params,
-    });
-  }
-
-  buildCallHypiumRequest(api: string, args: unknown): string {
-    return JSON.stringify({
-      module: 'com.ohos.devicetest.hypiumApiHelper',
-      method: 'callHypiumApi',
-      params: { api, args, this: 'Driver#0' },
-    });
-  }
-
-  private sendRequest(request: string): Promise<string> {
-    return new Promise((resolve, reject) => {
-      if (!this.socket || !this.isReady) {
-        reject(new Error('Uitest not ready'));
-        return;
-      }
-      const data = Buffer.from(request, 'utf-8');
-
-      const onData = (buf: Buffer) => {
-        const text = buf.toString('utf-8');
-        this.socket!.off('data', onData);
-        resolve(text);
-      };
-
-      const onError = (err: Error) => {
-        this.socket!.off('data', onData);
-        reject(err);
-      };
-
-      this.socket.once('data', onData);
-      this.socket.once('error', onError);
-      this.socket.write(data);
-    });
-  }
-
-  private sendLayoutRequest(request: string): Promise<string> {
-    return new Promise((resolve, reject) => {
-      if (!this.layoutSocket || !this.isReady) {
-        reject(new Error('Uitest not ready'));
-        return;
-      }
-
-      const body = Buffer.from(request, 'utf-8');
-      const header = Buffer.alloc(4 + 4);
-      header.writeUInt32BE(AUX_MAGIC, 0);
-      header.writeUInt32BE(body.length, 4);
-      const frame = Buffer.concat([HEAD, header, body, TAIL]);
-
-      let chunks: Buffer[] = [];
-      let _totalLen = 0;
-      let found = false;
-
-      const onData = (buf: Buffer) => {
-        chunks.push(buf);
-        _totalLen += buf.length;
-        const combined = Buffer.concat(chunks);
-        const text = combined.toString('utf-8');
-
-        if (text.includes('_uitestkit_rpc_message_tail_')) {
-          found = true;
-          this.layoutSocket!.off('data', onData);
-          // 提取 JSON 部分
-          const startIdx = text.indexOf('{"result');
-          const endIdx = text.indexOf('_uitestkit_rpc_message_tail_');
-          if (startIdx >= 0 && endIdx > startIdx) {
-            const jsonStr = text.substring(startIdx, endIdx);
-            try {
-              const resp = JSON.parse(jsonStr);
-              // Handle different response formats
-              if (resp.result) {
-                const resultStr = typeof resp.result === 'string' ? resp.result : JSON.stringify(resp.result);
-                resolve(resultStr);
-              } else {
-                resolve(jsonStr);
-              }
-            } catch {
-              resolve(text);
-            }
-          } else {
-            resolve(text);
-          }
-        }
-      };
-
-      const onError = (err: Error) => {
-        this.layoutSocket!.off('data', onData);
-        reject(err);
-      };
-
-      this.layoutSocket.on('data', onData);
-      this.layoutSocket.once('error', onError);
-      this.layoutSocket.write(frame);
-
-      // 超时保护
-      setTimeout(() => {
-        if (!found) {
-          this.layoutSocket!.off('data', onData);
-          resolve('');
-        }
-      }, UITEST_LAYOUT_REQUEST_TIMEOUT_MS);
-    });
+  private async doSendLayoutRequest(request: string): Promise<string> {
+    const frame = buildLayoutFrame(request);
+    const text = await sendLayoutRequest(this.layoutSocket, this.isReady, frame, UITEST_LAYOUT_REQUEST_TIMEOUT_MS);
+    return parseLayoutResponse(text);
   }
 }

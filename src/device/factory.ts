@@ -1,10 +1,10 @@
 import { HdcClient } from './hdc';
 import { PortForwardManager } from './port-forward';
-import { DeviceManager } from './manager';
-import { UitestServer } from '../input/uitest';
+import { DeviceManager } from './application/device-manager';
+import { UitestServer } from '../input/infrastructure/uitest-server';
 import { DeviceContext } from './context';
 import { IHdcClient, IDeviceManager, IUitestServer, IPortForwardManager, IScrcpyStream, IDeviceFactory, IDeviceContext } from './interfaces';
-import type { ScrcpyConfig } from '../types';
+import type { ScrcpyConfig } from '../shared/types';
 import { DEFAULT_HDC_PORT } from '../constants';
 
 // Re-export IDeviceFactory for external use

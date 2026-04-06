@@ -5,9 +5,14 @@ import * as path from 'path';
 const E2E_PORT = 19300;
 let _baseUrl = '';
 
+export interface ServerHelper {
+  proc: ChildProcess;
+  baseUrl: string;
+}
+
 export function getBaseUrl(): string { return _baseUrl; }
 
-export async function startServer(): Promise<{ baseUrl: string; proc: ChildProcess }> {
+export async function startServer(): Promise<ServerHelper> {
   const templatesDir = path.resolve(__dirname, '../../templates');
   const proc = spawn('node', [
     'dist/bin/server.js',

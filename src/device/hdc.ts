@@ -1,5 +1,5 @@
 import { spawn, SpawnOptions, ChildProcess } from 'child_process';
-import type { HdcOptions } from '../types';
+import type { HdcOptions } from '../shared/types';
 import {
   DEFAULT_HDC_PORT,
   HDC_EXEC_DEFAULT_TIMEOUT_SEC,
@@ -156,4 +156,4 @@ export class HdcClient {
 }
 
 // Re-export types for backward compatibility
-export type { HdcOptions } from '../types';
+export type { HdcOptions } from '../shared/types';

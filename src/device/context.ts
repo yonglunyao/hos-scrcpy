@@ -58,8 +58,8 @@ export class DeviceContext {
    * @returns 新的 DeviceContext 实例
    */
   static fromConfig(config: { sn: string; persistent?: boolean } & Record<string, unknown>): DeviceContext {
-    const { DeviceManager } = require('./manager');
-    const { UitestServer } = require('../../input/uitest');
+    const { DeviceManager } = require('./application/device-manager');
+    const { UitestServer } = require('../input/infrastructure/uitest-server');
     const manager = DeviceManager.fromConfig(config as any);
     const uitest = UitestServer.fromDeviceManager(manager);
     return new DeviceContext(manager, uitest, config.persistent || false);

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { UitestServer } from '../../src/input/uitest';
+import { UitestServer } from '../../src/input/infrastructure/uitest-server';
 import { MockHdcClient } from '../helpers/mock-hdc';
-import { DeviceManager } from '../../src/device/manager';
+import { DeviceManager } from '../../src/device/application/device-manager';
 
 // Access private builder methods by creating a test instance
 // The builders are now public for testing, but they require an instance

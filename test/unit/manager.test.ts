@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sprintf } from '../../src/device/manager';
+import { sprintf } from '../../src/device/application/device-manager';
 
 describe('sprintf', () => {
   it('replaces %s', () => {
