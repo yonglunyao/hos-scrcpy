@@ -285,6 +285,13 @@
                         <button class="btn btn-secondary" onclick="sendKeyEvent('POWER')">⏻ 电源</button>
                     </div>
                 </div>
+                <div class="sidebar-section">
+                    <div class="section-title">录屏截屏</div>
+                    <div class="control-buttons">
+                        <button class="btn btn-secondary" id="screenshotBtn" onclick="takeScreenshot()" disabled>📷 截屏</button>
+                        <button class="btn btn-secondary" id="recordBtn" onclick="toggleRecording()" disabled>⏺ 开始录屏</button>
+                    </div>
+                </div>
             </div>
 
             <!-- 列4: 日志 -->
@@ -319,6 +326,11 @@
         let mouseDownPos = null;
         let fpsFrameCount = 0;
         let fpsLastUpdateTime = 0;
+        let mediaRecorder = null;
+        let recordedChunks = [];
+        let isRecording = false;
+        let recordingStartTime = 0;
+        let recordingTimer = null;
 
         function log(message, type = 'info') {
             const logBox = document.getElementById('logBox');
@@ -402,6 +414,9 @@
                     video.play().then(() => {
                         log('视频播放已开始', 'success');
                         setupTouchControl();
+                        // 启用截屏和录屏按钮
+                        document.getElementById('screenshotBtn').disabled = false;
+                        document.getElementById('recordBtn').disabled = false;
                     }).catch(e => log('自动播放失败: ' + e.message, 'error'));
 
                     // 超激进缓冲管理 - 优先低延迟
@@ -471,6 +486,8 @@
 
         function stopCasting() {
             casting = false;
+            // 停止录屏
+            if (isRecording) stopRecording();
             if (ws) { ws.close(); ws = null; }
             if (jmuxer) { jmuxer.destroy(); jmuxer = null; }
             if (bufferCheckInterval) { clearInterval(bufferCheckInterval); bufferCheckInterval = null; }
@@ -485,6 +502,9 @@
             document.getElementById('resolution').textContent = '-';
             document.getElementById('startBtn').disabled = false;
             document.getElementById('stopBtn').disabled = true;
+            // 禁用截屏和录屏按钮
+            document.getElementById('screenshotBtn').disabled = true;
+            document.getElementById('recordBtn').disabled = true;
             document.getElementById('screenVideo').style.display = 'none';
             document.getElementById('placeholder').style.display = 'block';
             updateStatus('disconnected', '已停止');
@@ -539,6 +559,127 @@
         function sendTouchEvent(eventType, x, y) {
             if (!ws || !casting) return;
             ws.send(JSON.stringify({ type: 'touchEvent', sn: currentDevice, message: { event: eventType, x: Math.round(x), y: Math.round(y) } }));
+        }
+
+        // 截屏功能
+        function takeScreenshot() {
+            const video = document.getElementById('screenVideo');
+            if (!video || video.videoWidth === 0) {
+                log('视频未就绪，无法截屏', 'error');
+                return;
+            }
+
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            // 转换为 PNG 并下载
+            canvas.toBlob((blob) => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `screenshot_${currentDevice}_${new Date().toISOString().replace(/[:.]/g, '-')}.png`;
+                a.click();
+                URL.revokeObjectURL(url);
+                log('截屏已保存', 'success');
+            }, 'image/png');
+        }
+
+        // 录屏功能
+        function toggleRecording() {
+            if (isRecording) {
+                stopRecording();
+            } else {
+                startRecording();
+            }
+        }
+
+        function startRecording() {
+            const video = document.getElementById('screenVideo');
+            if (!video || video.videoWidth === 0) {
+                log('视频未就绪，无法录屏', 'error');
+                return;
+            }
+
+            // 检查浏览器支持
+            const types = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+            let selectedType = null;
+            for (const type of types) {
+                if (MediaRecorder.isTypeSupported(type)) {
+                    selectedType = type;
+                    break;
+                }
+            }
+
+            if (!selectedType) {
+                log('浏览器不支持录屏', 'error');
+                return;
+            }
+
+            try {
+                // 捕获视频流
+                const stream = video.captureStream();
+                mediaRecorder = new MediaRecorder(stream, { mimeType: selectedType });
+                recordedChunks = [];
+
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data && event.data.size > 0) {
+                        recordedChunks.push(event.data);
+                    }
+                };
+
+                mediaRecorder.onstop = () => {
+                    const blob = new Blob(recordedChunks, { type: selectedType });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
+                    const mins = Math.floor(elapsed / 60).toString().padStart(2, '0');
+                    const secs = (elapsed % 60).toString().padStart(2, '0');
+                    a.download = `recording_${currentDevice}_${new Date().toISOString().replace(/[:.]/g, '-')}_${mins}${secs}.webm`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    log(`录屏已保存 (${mins}:${secs})`, 'success');
+                };
+
+                mediaRecorder.start(100); // 每100ms保存一个数据块
+                isRecording = true;
+                recordingStartTime = Date.now();
+                document.getElementById('recordBtn').textContent = '⏹ 停止录屏';
+                document.getElementById('recordBtn').classList.add('btn-danger');
+                document.getElementById('recordBtn').classList.remove('btn-secondary');
+
+                // 更新录屏时长显示
+                if (recordingTimer) clearInterval(recordingTimer);
+                recordingTimer = setInterval(() => {
+                    if (!isRecording) return;
+                    const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
+                    const mins = Math.floor(elapsed / 60).toString().padStart(2, '0');
+                    const secs = (elapsed % 60).toString().padStart(2, '0');
+                    document.getElementById('recordBtn').textContent = `⏹ 停止 (${mins}:${secs})`;
+                }, 1000);
+
+                log('开始录屏', 'info');
+            } catch (e) {
+                log(`录屏启动失败: ${e.message}`, 'error');
+            }
+        }
+
+        function stopRecording() {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+            }
+            isRecording = false;
+            if (recordingTimer) {
+                clearInterval(recordingTimer);
+                recordingTimer = null;
+            }
+            document.getElementById('recordBtn').textContent = '⏺ 开始录屏';
+            document.getElementById('recordBtn').classList.remove('btn-danger');
+            document.getElementById('recordBtn').classList.add('btn-secondary');
+            log('录屏已停止', 'info');
         }
 
         function getVideoCoords(clientX, clientY, video) {
