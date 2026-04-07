@@ -1,6 +1,6 @@
 {
   "name": "hos-scrcpy",
-  "version": "1.1.1",
+  "version": "1.2.1",
   "description": "HarmonyOS screen casting server - TypeScript replacement for demoWithoutRecord.jar",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
