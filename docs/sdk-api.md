@@ -1,6 +1,6 @@
 # hos-scrcpy SDK 接口文档
 
-> 版本: 1.1.1 | 入口: `import { ... } from 'hos-scrcpy'`
+> 版本: 1.2.0 | 入口: `import { ... } from 'hos-scrcpy'`
 
 ## 目录
 
@@ -456,6 +456,14 @@ const uitest = UitestServer.fromDeviceManager(device);
 
 完整的 HarmonyOS 投屏服务，包含 HTTP 静态文件服务、WebSocket 消息路由、设备生命周期管理。与原 `demoWithoutRecord.jar` 的 WebSocket 协议完全兼容。
 
+**内置 Web UI 功能**（v1.2.0+）：
+- 实时视频流播放（使用 JMuxer 解码 H.264）
+- 实时帧率（FPS）显示
+- 一键截屏（PNG 格式下载）
+- 屏幕录制（WebM 格式下载）
+- 触摸/鼠标输入控制
+- 键盘输入控制（HOME/BACK/音量/菜单/电源）
+
 ### 导入
 
 ```typescript
@@ -550,8 +558,20 @@ console.log('实际端口:', server.getPort());  // 例如: 19148
 |------|------|------|
 | GET | `/api/devices` | 获取已连接设备列表（JSON 数组） |
 | GET | `/api/status[?sn=xxx]` | 获取投屏状态（不传 `sn` 返回所有设备） |
-| GET | `/` | Web UI 页面（需配置 `templatesDir`） |
+| GET | `/` | Web UI 控制台（需配置 `templatesDir`） |
 | GET | `/webview/*` | 静态文件服务（用于插件 webview） |
+
+### Web UI 功能
+
+内置 Web 控制台提供以下功能：
+
+| 功能 | 说明 |
+|------|------|
+| 设备管理 | 选择设备、启动/停止投屏、刷新设备列表 |
+| 状态监控 | 分辨率、帧率、帧数、延迟、码率、运行时长 |
+| 截屏 | 一键截取当前视频帧并保存为 PNG 图片 |
+| 录屏 | 录制视频流并保存为 WebM 文件（支持实时时长显示） |
+| 远程控制 | HOME/BACK/音量+/音量-/菜单/电源按键 |
 
 #### `/api/status` 响应格式
 
