@@ -1,5 +1,38 @@
+# Dependencies
 node_modules/
+
+# Build output
 dist/
 
 # Package output
 package/
+
+# Test coverage
+coverage/
+*.lcov
+
+# Test results
+test-results/
+.results/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+.cache/
