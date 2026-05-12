@@ -19,7 +19,7 @@ export const SCRCPY_SO_LIST = [
 
 /** 新版 SO 列表（uitest >= 6.0.2.1） */
 export const SCRCPY_SEC_SO_LIST = [
-  'libscrcpy_server-6.2-20250926.so',
+  'libscrcpy_server_unix_6.5-20260313.z.so',
 ];
 
 /** Reserved for future emulator support */
@@ -34,7 +34,7 @@ export const _RECORDER_SO_LIST = [
 ];
 
 export const _RECORDER_SEC_SO_LIST = [
-  'libscrcpy_server-6.2-20250926.so',
+  'libscrcpy_server_unix_6.5-20260313.z.so',
 ];
 
 /** Agent names defined in uitest.ts */

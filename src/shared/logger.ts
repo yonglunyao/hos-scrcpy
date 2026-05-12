@@ -28,9 +28,17 @@ const baseOptions = {
 };
 
 /**
- * Development logger with pretty formatting
+ * Production logger (JSON output)
  */
-const developmentLogger = pino({
+const productionLogger = pino({
+  ...baseOptions,
+});
+
+/**
+ * Development logger factory (creates logger with pretty formatting)
+ * Only created when pino-pretty is available
+ */
+const createDevelopmentLogger = () => pino({
   ...baseOptions,
   transport: {
     target: 'pino-pretty',
@@ -43,16 +51,23 @@ const developmentLogger = pino({
 });
 
 /**
- * Production logger (JSON output)
- */
-const productionLogger = pino({
-  ...baseOptions,
-});
-
-/**
  * Main logger instance
+ * Use development logger only in development mode and when pino-pretty is available
  */
-export const logger = isDevelopment ? developmentLogger : productionLogger;
+export const logger = (() => {
+  if (!isDevelopment) {
+    return productionLogger;
+  }
+  try {
+    // Check if pino-pretty is available
+    require.resolve('pino-pretty');
+    // Create development logger only when pino-pretty is available
+    return createDevelopmentLogger();
+  } catch {
+    // pino-pretty not available, fall back to production logger
+    return productionLogger;
+  }
+})();
 
 /**
  * Create a child logger with additional context
