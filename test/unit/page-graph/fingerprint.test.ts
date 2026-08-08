@@ -41,6 +41,9 @@ describe('classifyMatch (漂移处置表)', () => {
   it('hash miss + 低 Jaccard → new(新页)', () => {
     expect(classifyMatch({ exactHashHit: false, jaccard: 0.2, margin: 0.1 })).toBe('new');
   });
+  it('hash miss + Jaccard≥T 但 margin<Δ → new(margin 不足不算 drift)', () => {
+    expect(classifyMatch({ exactHashHit: false, jaccard: 0.9, margin: 0.1 })).toBe('new');
+  });
 });
 
 describe('computeFingerprint', () => {

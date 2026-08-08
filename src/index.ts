@@ -32,3 +32,6 @@ export { createMcpServer, runMcpServer } from './mcp';
 // Screen model
 export type { Element, ScreenModel, Locator } from './screen-model';
 export { buildScreenModel, renderModel, resolveLocator, associateText } from './screen-model';
+
+// Page graph(SLAM 页面图)
+export * from './page-graph';

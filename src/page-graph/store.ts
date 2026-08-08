@@ -94,7 +94,12 @@ export function diffGraphs(
       const j = matchAnchors(o.fingerprint.anchors, n.fingerprint.anchors);
       if (!best || j > best.j) best = { o, j };
     }
-    if (best && best.j >= t) {
+    // 两边 anchors 都空时 matchAnchors 返回 1.0(按设计),但无法区分纯图标页;
+    // 此时即便 jaccard=1 也不判 revised,走 added/removed(防 skeletonHash 不同的纯图标页误判改版)。
+    const hasAnyAnchor =
+      best !== null &&
+      (best.o.fingerprint.anchors.length > 0 || n.fingerprint.anchors.length > 0);
+    if (best && hasAnyAnchor && best.j >= t) {
       revised.push({ oldNode: best.o, newNode: n, jaccard: best.j });
       removed.splice(removed.indexOf(best.o), 1);
     } else {

@@ -99,4 +99,14 @@ describe('diffGraphs', () => {
     expect(d.removed.map((n) => n.id)).toContain('o');
     expect(d.added.map((n) => n.id)).toContain('n');
   });
+
+  it('hash 不同 + 两边 anchors 都空 → added + removed(非 revised,防纯图标页误判)', () => {
+    // matchAnchors([], []) = 1.0 按设计;但 skeletonHash 不同且无锚点的纯图标页不应判改版
+    const a = graphWith('app', fpNode('old', 'hashA', []));
+    const b = graphWith('app', fpNode('new', 'hashB', []));
+    const d = diffGraphs(a, b, { anchorThreshold: 0.6 });
+    expect(d.revised.length).toBe(0);
+    expect(d.added.map((n) => n.id)).toContain('new');
+    expect(d.removed.map((n) => n.id)).toContain('old');
+  });
 });

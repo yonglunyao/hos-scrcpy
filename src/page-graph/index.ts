@@ -14,4 +14,5 @@ export { normalizeSkeleton, bucketize, normalizeDynamic, normalizeText, learnSta
 export { serializeCanonical } from './serialize';
 export { computeFingerprint, extractAnchors, matchAnchors, classifyMatch } from './fingerprint';
 export { geometrySignature } from './geometry';
-export { MapStore } from './store';
+export { MapStore, diffGraphs } from './store';
+export type { GraphDiff } from './store';
