@@ -1,4 +1,4 @@
-import type { ScreenModel, Element } from './types';
+import type { ScreenModel } from './types';
 
 const contains = (outer: number[], inner: number[]) =>
   inner[0]! >= outer[0]! && inner[1]! >= outer[1]! && inner[2]! <= outer[2]! && inner[3]! <= outer[3]!;

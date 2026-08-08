@@ -28,3 +28,7 @@ export { logger, createChildLogger } from './shared/logger';
 
 // MCP server
 export { createMcpServer, runMcpServer } from './mcp';
+
+// Screen model
+export type { Element, ScreenModel, Locator } from './screen-model';
+export { buildScreenModel, renderModel, resolveLocator, associateText } from './screen-model';

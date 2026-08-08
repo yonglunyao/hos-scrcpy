@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { resolveLocator } from '../../../src/screen-model/locator';
-import type { ScreenModel, Element, Locator } from '../../../src/screen-model/types';
+import type { ScreenModel, Element } from '../../../src/screen-model/types';
 
 const mk = (over: Partial<Element>): Element => ({ ref: '@e0#s1', bounds: [0,0,100,50], center: {x:50,y:25}, texts: [], attrs: {}, ...over });
 const model = (els: Element[]): ScreenModel => ({ generation: 1, ts: 0, elements: els });

@@ -151,7 +151,9 @@ npm run mcp
 | `disconnect_device` | 断开设备,释放资源 | — |
 | `device_info` | 查询在线状态/分辨率/uitest 版本/云设备 | 只读 |
 | `take_screenshot` | 截屏,返回全分辨率图像(设备坐标) | 只读 |
-| `dump_ui` | 转储 UI 布局树,返回元素 bounds 与中心坐标 | 只读 |
+| `dump_ui` | 屏幕模型双输出:`@eN#sN [type] text` 列表(compact,给 agent)+ 完整 bounds(json) | 只读 |
+| `act` | `act(ref, op)` 按 `@eN#sN` 引用操作元素(免坐标,代际校验防旧引用) | 写操作 |
+| `find` | `find(locator)` 按 text/hint/index 查找被截断元素,返回其 `@eN#sN` 引用 | 只读 |
 | `tap` | 点击坐标 | 写操作 |
 | `long_press` | 长按 | 写操作 |
 | `swipe` | 滑动 | 写操作 |
@@ -178,6 +180,18 @@ npm run mcp
 MCP 提供上述工具;网页版控制面板提供"录制操作 / 回放 / 停止回放 / 导出脚本"按钮(区别于视频录屏)。脚本可保存复用、手写编辑,跨工具兼容。
 
 > 坐标系:截图/触摸/UI 布局全程使用设备坐标,无 scale 转换。
+
+### @eN 工作流(agent 高效操作设备的主路径)
+
+屏幕模型把"看屏幕 → 定位元素 → 操作"收敛为基于 `@eN#sN` 引用的三步循环,agent 免维护坐标,适配动态渲染 app:
+
+1. **`dump_ui`** — 获取屏幕快照,返回 `@eN#sN [type] text` 列表(compact 格式省坐标,`@eN` 是元素序号、`sN` 是快照代际)。需要完整 bounds 时传 `format=json`。
+2. **`act("@eN#sN", "click")`** — 按引用操作元素(支持 `click`/`longClick`/`doubleClick`),内部代际校验:跨 `dump_ui` 后旧引用会过期报错,提示重新 dump,防止误点错位。
+3. **操作后重新 `dump_ui`** — 刷新引用代际,进入下一轮循环。
+
+辅助工具:`find(locator)` 按 `text`/`hint`/`index` 查找被 compact 渲染截断或视口外的元素,返回其 `@eN#sN` 引用(需先 `dump_ui` 建立模型)。
+
+> text 定位覆盖率 76-88%,普适含动态渲染 app;定位失败时回退到 `take_screenshot` + `tap(x, y)` 坐标路径。
 
 ### 编程式使用
 

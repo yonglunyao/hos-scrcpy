@@ -3,7 +3,6 @@ import { associateText } from '../../../src/screen-model/associate';
 import type { UiElement } from '../../../src/layout/types';
 
 const el = (over: Partial<UiElement>): UiElement => ({ bounds: [0,0,100,50], center: {x:50,y:25}, ...over });
-const overlap = (a: number[], b: number[]) => !(a[2] <= b[0] || b[2] <= a[0] || a[3] <= b[1] || b[3] <= a[1]);
 
 describe('associateText', () => {
   it('可点击控件本身有 text 时收入 texts', () => {
