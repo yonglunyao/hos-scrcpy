@@ -1,7 +1,7 @@
 // 逐步诊断:测各原语耗时,定位端到端卡点。用 console.error(stderr 无缓冲)输出时间戳。
 process.env.MSYS_NO_PATHCONV = '1';
 const { createMcpDevice, classifySafety } = require('../dist/explore');
-const { computeFingerprint, stripPopup, extractAnchors } = require('../dist/page-graph');
+const { computeFingerprint, stripPopup } = require('../dist/page-graph');
 const { connectSession, listDevices, sleep } = require('../dist/mcp/session');
 
 const log = (m) => console.error(`[${new Date().toISOString()}] ${m}`);
