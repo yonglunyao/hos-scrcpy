@@ -23,6 +23,7 @@ export function flattenLayout(layoutStr: string): UiElement[] {
       if (bounds) {
         const text = strAttr(attrs, ['text']);
         const originalText = strAttr(attrs, ['originalText']);
+        const description = strAttr(attrs, ['description']);
         const id = strAttr(attrs, ['id']);
         const key = strAttr(attrs, ['key']);
         const type = strAttr(attrs, ['type']);
@@ -36,6 +37,7 @@ export function flattenLayout(layoutStr: string): UiElement[] {
           };
           if (text) el.text = text;
           if (originalText) el.originalText = originalText;
+          if (description) el.description = description;
           if (id) el.id = id;
           if (key) el.key = key;
           if (type) el.type = type;

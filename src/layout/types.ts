@@ -3,6 +3,7 @@ export interface UiElement {
   center: { x: number; y: number };
   text?: string;
   originalText?: string;
+  description?: string;
   hint?: string;
   id?: string;
   key?: string;
