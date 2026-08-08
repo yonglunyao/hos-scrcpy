@@ -21,8 +21,8 @@ import { UitestServer } from '../input/infrastructure/uitest-server';
 import { SCREENSHOT_TIMEOUT_SEC } from '../constants';
 import { flattenLayout, dumpLayoutRaw } from '../layout';
 import type { UiElement } from '../layout';
-import { buildScreenModel, renderModel } from '../screen-model';
-import type { ScreenModel } from '../screen-model';
+import { buildScreenModel, parseRef, renderModel, resolveLocator } from '../screen-model';
+import type { Locator, ScreenModel } from '../screen-model';
 
 export interface McpSession {
   device: DeviceManager;
@@ -172,6 +172,51 @@ export function getCurrentModel(): ScreenModel | null {
 export function requireModel(): ScreenModel {
   if (!currentModel) throw new Error('No screen model. Call dump_ui first to capture one.');
   return currentModel;
+}
+
+// ── 引用操作 / Locator 查找(基于 dump_ui 缓存的 ScreenModel) ──
+
+/** 按 @eN#sN 引用操作元素。校验代际(过期拒绝),op 映射到 touchDown/Up。 */
+export async function actByRef(
+  ref: string,
+  op: 'click' | 'longClick' | 'doubleClick',
+  durationMs = 800,
+): Promise<string> {
+  const model = requireModel();
+  const parsed = parseRef(ref);
+  if (!parsed || parsed.gen !== model.generation) {
+    throw new Error(
+      `ref ${ref} 已过期(当前代际 s${model.generation})。请重新调用 dump_ui 获取新 @eN#sN。`,
+    );
+  }
+  const el = model.elements[parsed.idx];
+  if (!el) throw new Error(`ref ${ref} 无对应元素。请重新 dump_ui。`);
+  const { uitest } = requireSession();
+  const { x, y } = el.center;
+  if (op === 'click' || op === 'doubleClick') {
+    await uitest.touchDown(x, y);
+    await uitest.touchUp(x, y);
+    if (op === 'doubleClick') {
+      await uitest.touchDown(x, y);
+      await uitest.touchUp(x, y);
+    }
+  } else {
+    // longClick
+    await uitest.touchDown(x, y);
+    await sleep(durationMs);
+    await uitest.touchUp(x, y);
+  }
+  return `已对 ${ref}(${el.texts[0] ?? el.attrs.type}) 执行 ${op} @(${x},${y})`;
+}
+
+/** 按 Locator 查找元素,返回其 ref(供 act 使用)。 */
+export function findByLocator(loc: Locator): string {
+  const model = requireModel();
+  const el = resolveLocator(model, loc);
+  if (!el) {
+    throw new Error(`未找到匹配 Locator 的元素:${JSON.stringify(loc)}。可换坐标 tap 兜底。`);
+  }
+  return el.ref;
 }
 
 // ── 脚本录制 / 回放(薄封装共享 Recorder,MCP 与 Web 复用同一实现) ──

@@ -22,11 +22,13 @@ import { z } from 'zod';
 import { getHdcKeyCode } from '../input/keycode';
 import { UINPUT_TOUCH_TIMEOUT_SEC } from '../constants';
 import {
+  actByRef,
   captureScreenshot,
   captureScreenModel,
   connectSession,
   disconnectSession,
   exportScript,
+  findByLocator,
   getSession,
   importScript,
   listDevices,
@@ -38,6 +40,7 @@ import {
   stopRecord,
   stopReplayActions,
 } from './session';
+import type { Locator } from '../screen-model';
 
 const READ_ONLY = { readOnlyHint: true } as const;
 const DESTRUCTIVE = { destructiveHint: true } as const;
@@ -53,6 +56,14 @@ const actionSchema = z.object({
   x2: z.number().int().optional(),
   y2: z.number().int().optional(),
   velocity: z.number().int().optional(),
+});
+
+const locatorSchema = z.object({
+  text: z.string().optional(),
+  textMode: z.enum(['equals', 'contains', 'regex']).optional(),
+  hint: z.string().optional(),
+  index: z.number().int().optional(),
+  enabled: z.boolean().optional(),
 });
 
 export function createMcpServer(): McpServer {
@@ -178,6 +189,34 @@ export function createMcpServer(): McpServer {
       }
       return text(render);
     },
+  );
+
+  server.registerTool(
+    'act',
+    {
+      description:
+        '【操作·引用】用 dump_ui 返回的 @eN#sN 引用操作元素(免坐标)。op:click/longClick/doubleClick。' +
+        'ref 必须来自最近一次 dump_ui(跨 dump 失效,过期会报错提示重 dump)。',
+      inputSchema: {
+        ref: z.string().describe('dump_ui 返回的 @eN#sN 引用'),
+        op: z.enum(['click', 'longClick', 'doubleClick']).describe('操作类型'),
+        duration_ms: z.number().int().min(50).max(10000).default(800).describe('longClick 时长(毫秒)'),
+      },
+      annotations: DESTRUCTIVE,
+    },
+    async ({ ref, op, duration_ms }) => text(await actByRef(ref, op, duration_ms)),
+  );
+
+  server.registerTool(
+    'find',
+    {
+      description:
+        '【查找】按 Locator(text/hint/index/enabled)在当前屏幕模型查找元素,返回其 @eN#sN 引用(供 act 使用)。' +
+        '用于 dump_ui 渲染被截断/视口外的元素。需先 dump_ui 建立模型。',
+      inputSchema: { locator: locatorSchema },
+      annotations: READ_ONLY,
+    },
+    async ({ locator }) => text(`找到:${findByLocator(locator as Locator)}`),
   );
 
   // ── 触摸 / 手势(复用 UitestServer socket,与 Web 同源) ──
