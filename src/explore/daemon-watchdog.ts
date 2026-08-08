@@ -52,6 +52,7 @@ export class DaemonWatchdog implements DevicePrimitives {
   async tapCoord(x: number, y: number): Promise<void> { return this.guarded(() => this.inner.tapCoord(x, y)); }
   async pressBack(): Promise<void> { return this.guarded(() => this.inner.pressBack()); }
   launchApp(bundle: string, ability?: string): Promise<void> { return this.inner.launchApp(bundle, ability); }  // aa start 走 hdc
+  forceStop(bundle: string): Promise<void> { return this.inner.forceStop(bundle); }                              // aa force-stop 走 hdc
   shell(cmd: string, timeoutSec?: number): Promise<string> { return this.inner.shell(cmd, timeoutSec); }          // 不探活(避免递归)
   recover(): Promise<void> { return this.inner.recover(); }
 }

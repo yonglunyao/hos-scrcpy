@@ -23,6 +23,7 @@ export async function createMcpDevice(): Promise<DevicePrimitives> {
     launchApp: async (bundle, ability) => {
       await requireSession().device.shell(`aa start -a ${ability ?? 'EntryAbility'} -b ${bundle}`);
     },
+    forceStop: async (bundle) => { await requireSession().device.shell(`aa force-stop ${bundle}`); },
     shell: (cmd, timeoutSec) => requireSession().device.shell(cmd, timeoutSec),
     recover: async () => { await disconnectSession(); await connectSession(sn); },
   };

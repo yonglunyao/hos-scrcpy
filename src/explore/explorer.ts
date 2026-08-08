@@ -162,6 +162,7 @@ export class Explorer {
   private async restartFromRootSense(): Promise<SenseResult | null> {
     const root = this.graph.nodes.get(this.graph.rootId!);
     if (!root) { this.backFail++; return null; }
+    await this.dev.forceStop(this.cfg.appBundle);
     await this.dev.launchApp(this.cfg.appBundle, this.cfg.appAbility ?? 'EntryAbility');
     const s = await this.act.senseStable();
     if (s.fingerprint.skeletonHash === root.fingerprint.skeletonHash) {

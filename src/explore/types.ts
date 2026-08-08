@@ -16,6 +16,8 @@ export interface DevicePrimitives {
   tapCoord(x: number, y: number): Promise<void>;
   pressBack(): Promise<void>;
   launchApp(bundle: string, ability?: string): Promise<void>;
+  /** 强制停止 app(冷启动回 root,绕开 launchApp 幂等不重置状态)。 */
+  forceStop(bundle: string): Promise<void>;
   shell(cmd: string, timeoutSec?: number): Promise<string>;
   /** daemon 卡死/丢失时的恢复(kill + reconnect)。 */
   recover(): Promise<void>;

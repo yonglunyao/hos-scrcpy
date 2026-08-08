@@ -6,8 +6,8 @@ export class FakeDevice implements DevicePrimitives {
   screenSize = { w: 1080, h: 2340 };
   private models: ScreenModel[];
   private idx = 0;
-  calls: { tapRef: string[]; tapCoord: Array<{x:number;y:number}>; back: number; launch: Array<{bundle:string;ability?:string}>; shell: string[]; recover: number } =
-    { tapRef: [], tapCoord: [], back: 0, launch: [], shell: [], recover: 0 };
+  calls: { tapRef: string[]; tapCoord: Array<{x:number;y:number}>; back: number; launch: Array<{bundle:string;ability?:string}>; shell: string[]; recover: number; forceStop: number } =
+    { tapRef: [], tapCoord: [], back: 0, launch: [], shell: [], recover: 0, forceStop: 0 };
 
   constructor(models: ScreenModel[], screenSize?: { w: number; h: number }) {
     this.models = models;
@@ -22,6 +22,7 @@ export class FakeDevice implements DevicePrimitives {
   async tapCoord(x: number, y: number): Promise<void> { this.calls.tapCoord.push({ x, y }); }
   async pressBack(): Promise<void> { this.calls.back++; }
   async launchApp(bundle: string, ability?: string): Promise<void> { this.calls.launch.push({ bundle, ability }); }
+  async forceStop(_bundle: string): Promise<void> { this.calls.forceStop++; }
   async shell(cmd: string): Promise<string> { this.calls.shell.push(cmd); return '1'; }
   async recover(): Promise<void> { this.calls.recover++; }
 }
