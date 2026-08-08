@@ -23,11 +23,10 @@ import { getHdcKeyCode } from '../input/keycode';
 import { UINPUT_TOUCH_TIMEOUT_SEC } from '../constants';
 import {
   captureScreenshot,
+  captureScreenModel,
   connectSession,
   disconnectSession,
-  dumpLayoutRaw,
   exportScript,
-  flattenLayout,
   getSession,
   importScript,
   listDevices,
@@ -158,19 +157,26 @@ export function createMcpServer(): McpServer {
     'dump_ui',
     {
       description:
-        '转储当前界面的 UI 布局树,返回元素列表。每个元素含 bounds=[left,top,right,bottom] 与 center 中心点(均为设备坐标),' +
-        'center 可直接作为 tap/swipe/input_text 的坐标。仅保留有 text/id 或可点击(clickable=true)的元素以过滤海量容器节点——' +
-        '点击时优先选 clickable=true 的元素。解析为空时会附带原始布局 JSON 前部供排查。',
-      inputSchema: {},
+        '【感知·快照】dump 当前屏幕为统一模型,返回 @eN 引用的元素列表(可点击控件+text,省坐标)。' +
+        '每行格式 @eN#sN [type] text → 相关text。用 act("@eN#sN","click") 操作引用,find 查找特定元素。' +
+        'format=compact(默认,给agent看)/json(结构化,含 bounds)。@eN 跨 dump 失效,操作后需重新 dump_ui。',
+      inputSchema: {
+        format: z.enum(['compact', 'json']).default('compact').describe('输出格式'),
+      },
       annotations: READ_ONLY,
     },
-    async () => {
-      const raw = await dumpLayoutRaw(requireSession().device);
-      const elements = flattenLayout(raw);
-      if (elements.length === 0) {
-        return text(`未解析出元素。原始布局(前部):\n${raw.slice(0, 2000)}`);
+    async ({ format }) => {
+      const { model, render } = await captureScreenModel();
+      if (format === 'json') {
+        return text(
+          JSON.stringify(
+            { generation: model.generation, count: model.elements.length, elements: model.elements },
+            null,
+            2,
+          ),
+        );
       }
-      return text(JSON.stringify({ count: elements.length, elements }, null, 2));
+      return text(render);
     },
   );
 

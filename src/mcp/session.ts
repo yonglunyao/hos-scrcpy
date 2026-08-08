@@ -19,6 +19,10 @@ import type { RecordedAction } from '../record/recorder';
 import { HdcClient } from '../device/hdc';
 import { UitestServer } from '../input/infrastructure/uitest-server';
 import { SCREENSHOT_TIMEOUT_SEC } from '../constants';
+import { flattenLayout, dumpLayoutRaw } from '../layout';
+import type { UiElement } from '../layout';
+import { buildScreenModel, renderModel } from '../screen-model';
+import type { ScreenModel } from '../screen-model';
 
 export interface McpSession {
   device: DeviceManager;
@@ -28,6 +32,7 @@ export interface McpSession {
 
 let hdcPath = process.env.HDC_PATH || 'hdc';
 let session: McpSession | null = null;
+let currentModel: ScreenModel | null = null;
 
 export function getHdcPath(): string {
   return hdcPath;
@@ -78,6 +83,7 @@ export async function disconnectSession(): Promise<void> {
   if (!session) return;
   const prev = session;
   session = null;
+  currentModel = null;
   if (recorder) {
     await recorder.dispose().catch(() => undefined);
     recorder = null;
@@ -145,8 +151,28 @@ function readBase64(filePath: string): string {
 
 // ── UI 布局(实现下沉 src/layout/,这里重导出保持向后兼容) ──
 
-export { flattenLayout, dumpLayoutRaw } from '../layout';
-export type { UiElement } from '../layout';
+export { flattenLayout, dumpLayoutRaw };
+export type { UiElement };
+
+// ── 屏幕模型(dump → ScreenModel,供 Task 9 act/find 复用) ──
+
+/** dump 当前屏幕,构建并缓存 ScreenModel(更新代际)。返回紧凑渲染文本 + 模型。 */
+export async function captureScreenModel(): Promise<{ model: ScreenModel; render: string }> {
+  const device = requireSession().device;
+  const json = await dumpLayoutRaw(device);
+  const model = buildScreenModel(json);
+  currentModel = model;
+  return { model, render: renderModel(model) };
+}
+
+export function getCurrentModel(): ScreenModel | null {
+  return currentModel;
+}
+
+export function requireModel(): ScreenModel {
+  if (!currentModel) throw new Error('No screen model. Call dump_ui first to capture one.');
+  return currentModel;
+}
 
 // ── 脚本录制 / 回放(薄封装共享 Recorder,MCP 与 Web 复用同一实现) ──
 
