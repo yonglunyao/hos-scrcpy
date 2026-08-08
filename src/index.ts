@@ -35,3 +35,6 @@ export { buildScreenModel, renderModel, resolveLocator, associateText } from './
 
 // Page graph(SLAM 页面图)
 export * from './page-graph';
+
+// Explore(SLAM 探索器:ActExecutor/Explorer/DaemonWatchdog/SafetyFilter)
+export * from './explore';
