@@ -17,3 +17,7 @@ export type { ComputeFingerprintOptions } from './fingerprint';
 export { geometrySignature } from './geometry';
 export { MapStore, diffGraphs } from './store';
 export type { GraphDiff } from './store';
+export { detectPopup, stripPopup } from './popup';
+export type { PopupInfo } from './popup';
+export { classifyInconsistency } from './decision';
+export type { InconsistencyKind } from './decision';
