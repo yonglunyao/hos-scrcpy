@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, existsSync, readFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { MapStore } from '../../../src/page-graph/store';
+import { MapStore, diffGraphs } from '../../../src/page-graph/store';
 import type { PageGraph, PageNode } from '../../../src/page-graph/types';
 
 function emptyGraph(appBundle: string, appVersion: string): PageGraph {
@@ -61,5 +61,42 @@ describe('MapStore', () => {
     const names = store.list();
     expect(names.some((n) => n.includes('com.test'))).toBe(true);
     expect(names.some((n) => n.includes('com.other'))).toBe(true);
+  });
+});
+
+// --- diffGraphs: skeletonHash 精确 + anchors 二次匹配 ---
+function graphWith(appBundle: string, ...nodes: PageNode[]): PageGraph {
+  const g: PageGraph = { appBundle, appVersion: '1.0', fingerprintVersion: 'v1', nodes: new Map(), edges: [], entryPoints: [] };
+  for (const n of nodes) g.nodes.set(n.id, n);
+  return g;
+}
+function fpNode(id: string, skeletonHash: string, anchors: string[]): PageNode {
+  return { id, fingerprint: { version: 'v1', skeletonHash, anchors }, skeletonArchive: { nodes: [], lists: [] }, frontierExplored: [], frontierPending: [], visitedAt: 0 };
+}
+
+describe('diffGraphs', () => {
+  it('精确 skeletonHash 匹配 → unchanged', () => {
+    const a = graphWith('app', fpNode('h1', 'hash1', ['设置']));
+    const b = graphWith('app', fpNode('h1', 'hash1', ['设置']));
+    const d = diffGraphs(a, b);
+    expect(d.unchanged.map((n) => n.id)).toContain('h1');
+    expect(d.added.length + d.removed.length + d.revised.length).toBe(0);
+  });
+
+  it('hash 变但 anchors 同 → revised(非 removed+added)', () => {
+    const a = graphWith('app', fpNode('old', 'hashOld', ['设置', '关于']));
+    const b = graphWith('app', fpNode('new', 'hashNew', ['设置', '关于']));
+    const d = diffGraphs(a, b, { anchorThreshold: 0.8 });
+    expect(d.revised.length).toBe(1);
+    expect(d.revised[0].jaccard).toBeGreaterThan(0.8);
+    expect(d.added.length + d.removed.length).toBe(0);
+  });
+
+  it('hash 变 + anchors 也不同 → added + removed', () => {
+    const a = graphWith('app', fpNode('o', 'hO', ['AAA']));
+    const b = graphWith('app', fpNode('n', 'hN', ['BBB']));
+    const d = diffGraphs(a, b, { anchorThreshold: 0.8 });
+    expect(d.removed.map((n) => n.id)).toContain('o');
+    expect(d.added.map((n) => n.id)).toContain('n');
   });
 });

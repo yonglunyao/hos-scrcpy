@@ -2,6 +2,7 @@ import { writeFileSync, readFileSync, existsSync, renameSync, mkdirSync, readdir
 import { join } from 'path';
 import type { PageGraph, PageNode } from './types';
 import { FINGERPRINT_VERSION } from './types';
+import { matchAnchors } from './fingerprint';
 
 /**
  * MapStore:PageGraph 的文件持久化。
@@ -50,6 +51,58 @@ export class MapStore {
   list(): string[] {
     return existsSync(this.dir) ? readdirSync(this.dir).filter((f) => f.endsWith('.json')) : [];
   }
+}
+
+export interface GraphDiff {
+  unchanged: PageNode[];
+  revised: { oldNode: PageNode; newNode: PageNode; jaccard: number }[];
+  added: PageNode[];
+  removed: PageNode[];
+}
+
+/**
+ * 三遍匹配:skeletonHash 精确→unchanged;剩余 anchors Jaccard≥threshold→revised;其余→added/removed。
+ *
+ * revised 标"改版"(同页内容更新),区别于 removed+added(页面消失/新增)。
+ * anchorThreshold 默认 0.6(spec §4.8,待 Task 10 spike 回填)。
+ */
+export function diffGraphs(
+  oldGraph: PageGraph,
+  newGraph: PageGraph,
+  opts: { anchorThreshold?: number } = {},
+): GraphDiff {
+  const t = opts.anchorThreshold ?? 0.6;
+  const oldNodes = [...oldGraph.nodes.values()];
+  const newNodes = [...newGraph.nodes.values()];
+
+  const unchanged: PageNode[] = [];
+  const revised: GraphDiff['revised'] = [];
+  const added: PageNode[] = [];
+  const removed: PageNode[] = [...oldNodes];
+
+  for (const n of newNodes) {
+    // 第一遍:skeletonHash 精确匹配
+    const exact = removed.find((o) => o.fingerprint.skeletonHash === n.fingerprint.skeletonHash);
+    if (exact) {
+      unchanged.push(n);
+      removed.splice(removed.indexOf(exact), 1);
+      continue;
+    }
+    // 第二遍:anchors Jaccard 二次匹配(取最高)
+    let best: { o: PageNode; j: number } | null = null;
+    for (const o of removed) {
+      const j = matchAnchors(o.fingerprint.anchors, n.fingerprint.anchors);
+      if (!best || j > best.j) best = { o, j };
+    }
+    if (best && best.j >= t) {
+      revised.push({ oldNode: best.o, newNode: n, jaccard: best.j });
+      removed.splice(removed.indexOf(best.o), 1);
+    } else {
+      // 第三遍:既非精确也非相似 → 新增
+      added.push(n);
+    }
+  }
+  return { unchanged, revised, added, removed };
 }
 
 // Map 序列化支持(JSON 不原生支持 Map)
