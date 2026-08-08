@@ -7,9 +7,9 @@ export type OpType =
   | 'navigate' | 'toggle' | 'noop'
   | 'destructive' | 'external' | 'modal' | 'unknown';
 
-/** 指纹输入:Element + 补充的 checked(规则⑤用)。不改 MVP Element,模块内扩展。 */
+/** 指纹输入:Element 子集 + 设备分辨率。规则⑤由纯文本 CHECKED_STATE 驱动(见 normalizeText)。 */
 export interface FingerprintInput {
-  elements: ReadonlyArray<Element & { checked?: boolean }>;
+  elements: ReadonlyArray<Element>;
   /** 设备分辨率,用于几何签名归一化坐标;缺省按 bounds 推导 */
   screenSize?: { w: number; h: number };
 }
@@ -24,6 +24,7 @@ export interface NormalizedSkeleton {
 export interface NormalizedNode {
   text: string;
   type: string;
+  // MVP 简化:层级扁平化,depth 恒 0,父子关系未进骨架;待后续阶段补 pre-order DFS(spec §4.1.1)。
   depth: number;
 }
 

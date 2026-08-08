@@ -2,19 +2,19 @@ import { describe, it, expect } from 'vitest';
 import { normalizeSkeleton, bucketize, normalizeDynamic, learnStaticWhitelist } from '../../../src/page-graph/normalize';
 import type { FingerprintInput } from '../../../src/page-graph/types';
 
-// 类型化 helper(避免裸 any)。元素需符合 FingerprintInput.elements:Element & {checked?}
-function el(text: string, type = 'Button', opts: { clickable?: boolean; scrollable?: boolean; checked?: boolean } = {}): FingerprintInput['elements'][number] {
+// 类型化 helper(避免裸 any)。元素需符合 FingerprintInput.elements: Element。
+function el(text: string, type = 'Button', opts: { clickable?: boolean; scrollable?: boolean } = {}): FingerprintInput['elements'][number] {
   return {
     ref: '@e0#s1', bounds: [0, 0, 100, 100], center: { x: 50, y: 50 },
     texts: [text], attrs: { clickable: opts.clickable ?? true, scrollable: opts.scrollable, type },
-    checked: opts.checked,
   };
 }
 
 describe('normalizeSkeleton', () => {
   it('规则⑤:开关 checked-state 文本归一(toggle 不污染指纹)', () => {
-    const off = normalizeSkeleton({ elements: [el('已关闭', 'Text', { checked: false })] });
-    const on = normalizeSkeleton({ elements: [el('已开启', 'Text', { checked: true })] });
+    // 规则⑤ 由纯文本 CHECKED_STATE 驱动(spec §4.1.2):"已开启"/"已关闭" 都归一为 CHECKED_STATE。
+    const off = normalizeSkeleton({ elements: [el('已关闭', 'Text')] });
+    const on = normalizeSkeleton({ elements: [el('已开启', 'Text')] });
     expect(JSON.stringify(off.nodes)).toBe(JSON.stringify(on.nodes));
   });
 
@@ -102,6 +102,23 @@ describe('规则② 动态归一增强', () => {
 
   it('动态计数:"12 条新消息" → NUM 占位', () => {
     expect(normalizeDynamic('12 条新消息')).toBe('NUM 条新消息');
+  });
+
+  it('NUM 正则不裂变:任意长度无逗号数字归一为单个 NUM', () => {
+    // 4+ 位无逗号数字曾因 \d{1,3} 限 3 位裂变为 "NUMNUM"
+    expect(normalizeDynamic('1024')).toBe('NUM');
+    expect(normalizeDynamic('1234567')).toBe('NUM');
+    // 3 位与 4+ 位同桶(NUM 一致),防边界假差异
+    expect(normalizeDynamic('999')).toBe(normalizeDynamic('1024'));
+    // 千分位/小数仍归一为单个 NUM
+    expect(normalizeDynamic('1,024')).toBe('NUM');
+    expect(normalizeDynamic('3.14')).toBe('NUM');
+    expect(normalizeDynamic('1,000,000.50')).toBe('NUM');
+  });
+
+  it('DATE 正则放宽非零填充:月/日 1-2 位都识别', () => {
+    expect(normalizeDynamic('2024-1-5')).toBe('DATE');
+    expect(normalizeDynamic('2024-12-05')).toBe('DATE');
   });
 
   it('learnStaticWhitelist:同位 text 跨 dump 不变=静态,变=动态', () => {

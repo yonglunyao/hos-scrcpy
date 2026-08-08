@@ -44,6 +44,13 @@ describe('classifyMatch (漂移处置表)', () => {
   it('hash miss + Jaccard≥T 但 margin<Δ → new(margin 不足不算 drift)', () => {
     expect(classifyMatch({ exactHashHit: false, jaccard: 0.9, margin: 0.1 })).toBe('new');
   });
+  it('精确边界 jaccard=T=0.6 且 margin=Δ=0.2 → drift(>= 含等号)', () => {
+    // 闭区间:恰好等于阈值也算 drift(>=),不应退化到 new。
+    expect(classifyMatch({ exactHashHit: false, jaccard: 0.6, margin: 0.2 })).toBe('drift');
+  });
+  it('精确边界 jaccard=T 但 margin=Δ-ε → new(margin 不足)', () => {
+    expect(classifyMatch({ exactHashHit: false, jaccard: 0.6, margin: 0.199999 })).toBe('new');
+  });
 });
 
 describe('computeFingerprint', () => {
@@ -54,5 +61,16 @@ describe('computeFingerprint', () => {
     expect(a.skeletonHash).toBe(b.skeletonHash);
     expect(a.version).toBe('v1');
     expect(Array.isArray(a.anchors)).toBe(true);
+  });
+
+  it('透传 staticWhitelist:白名单文本保留不归一(规则②时序学习接入管线)', () => {
+    // '12条' 不带白名单 → 'NUM条';带白名单 → '12条' 保留。两者 skeletonHash 必不同。
+    const input: FingerprintInput = { elements: [el('12条', 0)], screenSize: { w: 400, h: 800 } };
+    const withoutWl = computeFingerprint(input);
+    const withWl = computeFingerprint(input, { staticWhitelist: new Set(['12条']) });
+    expect(withoutWl.skeletonHash).not.toBe(withWl.skeletonHash);
+    // 白名单缺省时向后兼容:与不传 opts 行为一致
+    const withEmptyOpts = computeFingerprint(input, {});
+    expect(withEmptyOpts.skeletonHash).toBe(withoutWl.skeletonHash);
   });
 });

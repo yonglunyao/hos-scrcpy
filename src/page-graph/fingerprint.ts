@@ -8,15 +8,29 @@ const ANCHOR_BAND = 0.05;   // 顶/底 5% 归一化带
 const DRIFT_T = 0.6;        // Jaccard 阈值(待 Task 10 spike 回填)
 const DRIFT_DELTA = 0.2;    // margin 阈值(待 Task 10 spike 回填)
 
-/** 指纹 = 规范化骨架 canonical 序列化的 SHA-256 + 锚点。 */
-export function computeFingerprint(input: FingerprintInput): PageFingerprint {
-  const skeleton = normalizeSkeleton(input);
+export interface ComputeFingerprintOptions {
+  /** 规则② 时序学习白名单(learnStaticWhitelist 产出):命中文本保留不归一。 */
+  staticWhitelist?: Set<string>;
+}
+
+/**
+ * 指纹 = 规范化骨架 canonical 序列化的 SHA-256 + 锚点。
+ *
+ * @param opts.staticWhitelist 规则② 时序学习白名单,透传给 normalizeSkeleton/extractAnchors,
+ *        让 learnStaticWhitelist 产出的白名单在指纹计算中真正生效(向后兼容:缺省不归一行为不变)。
+ */
+export function computeFingerprint(
+  input: FingerprintInput,
+  opts?: ComputeFingerprintOptions,
+): PageFingerprint {
+  const wl = opts?.staticWhitelist;
+  const skeleton = normalizeSkeleton(input, wl);
   const hash = createHash('sha256').update(serializeCanonical(skeleton)).digest('hex');
-  return { version: FINGERPRINT_VERSION, skeletonHash: hash, anchors: extractAnchors(input) };
+  return { version: FINGERPRINT_VERSION, skeletonHash: hash, anchors: extractAnchors(input, wl) };
 }
 
 /** 稳定锚点:顶/底 5% 带内 type 为 Text/Tab/Header/Title 的 text(动态归一)。 */
-export function extractAnchors(input: FingerprintInput): string[] {
+export function extractAnchors(input: FingerprintInput, wl?: Set<string>): string[] {
   const { h } = input.screenSize ?? { h: maxBottom(input) };
   const topBand = h * ANCHOR_BAND;
   const bottomBand = h * (1 - ANCHOR_BAND);
@@ -25,7 +39,7 @@ export function extractAnchors(input: FingerprintInput): string[] {
       const t = e.attrs.type ?? '';
       return /text|tab|header|title/i.test(t) && (e.center.y <= topBand || e.center.y >= bottomBand);
     })
-    .map((e) => normalizeDynamic((e.texts[0] ?? '').normalize('NFC')))
+    .map((e) => normalizeDynamic((e.texts[0] ?? '').normalize('NFC'), wl))
     .filter(Boolean);
 }
 

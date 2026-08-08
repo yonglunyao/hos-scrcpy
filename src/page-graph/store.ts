@@ -39,6 +39,10 @@ export class MapStore {
     const file = this.path(appBundle, appVersion);
     if (!existsSync(file)) return undefined;
     const graph = JSON.parse(readFileSync(file, 'utf-8'), reviver) as PageGraph;
+    // 结构校验:nodes 必须是 Map(reviver 已转),防损坏文件静默误用。
+    if (!graph || !(graph.nodes instanceof Map)) {
+      throw new Error('地图文件结构损坏:nodes 字段缺失或非 Map');
+    }
     if (graph.fingerprintVersion !== FINGERPRINT_VERSION) {
       throw new Error(
         `fingerprintVersion 不匹配:图=${graph.fingerprintVersion} 当前=${FINGERPRINT_VERSION},拒绝加载`,
@@ -71,6 +75,12 @@ export function diffGraphs(
   newGraph: PageGraph,
   opts: { anchorThreshold?: number } = {},
 ): GraphDiff {
+  // 版本闸(spec §4.8):两侧 fingerprintVersion 不一致 → 拒绝 diff,防跨版本骨架静默假比较。
+  if (oldGraph.fingerprintVersion !== newGraph.fingerprintVersion) {
+    throw new Error(
+      `diff 拒绝:fingerprintVersion 不一致 old=${oldGraph.fingerprintVersion} new=${newGraph.fingerprintVersion}`,
+    );
+  }
   const t = opts.anchorThreshold ?? 0.6;
   const oldNodes = [...oldGraph.nodes.values()];
   const newNodes = [...newGraph.nodes.values()];

@@ -19,20 +19,26 @@ export function bucketize(count: number): string {
   return '100+';
 }
 
-/** 五规则规范化。 */
-export function normalizeSkeleton(input: FingerprintInput): NormalizedSkeleton {
+/**
+ * 五规则规范化。
+ *
+ * @param wl 规则② 时序学习白名单(learnStaticWhitelist 产出):命中的文本保留不归一,
+ *           透传给 normalizeText/sig → normalizeDynamic。让规则②的时序学习真正生效。
+ */
+export function normalizeSkeleton(input: FingerprintInput, wl?: Set<string>): NormalizedSkeleton {
   const listEls = input.elements.filter(
     (e) => e.attrs.scrollable || /list|waterflow|grid/i.test(e.attrs.type ?? ''),
   );
   const lists: ListSummary[] = listEls.map((container) => {
     const children = input.elements.filter((e) => isInside(e, container));
-    const itemSigs = children.map((c) => sig(c)).sort();
+    const itemSigs = children.map((c) => sig(c, wl)).sort();
     return { type: container.attrs.type ?? 'List', countBucket: bucketize(children.length), itemSigs };
   });
 
   const nodes: NormalizedNode[] = input.elements
     .filter((e) => !isAd(e) && !isListItem(e, listEls))
-    .map((e) => ({ text: normalizeText(e), type: e.attrs.type ?? 'Unknown', depth: 0 }));
+    // MVP 简化:层级扁平化,depth 恒 0,父子关系未进骨架;待后续阶段补 pre-order DFS(spec §4.1.1)。
+    .map((e) => ({ text: normalizeText(e, wl), type: e.attrs.type ?? 'Unknown', depth: 0 }));
 
   // 纯图标页(所有 node 无 text):骨架退化为 type+层级会假合并,补几何布局维度。
   // normalizeText 对空 text 返回 '',故空 texts 元素 → nodes.text='' → 触发本分支。
@@ -43,21 +49,31 @@ export function normalizeSkeleton(input: FingerprintInput): NormalizedSkeleton {
   return skeleton;
 }
 
-/** 规则⑤ checked-state 归一 + 规则② 动态归一(Task 4 增强)。含 NFC 归一(spec §4.1.1 编码规范)。 */
-export function normalizeText(e: FpElement): string {
+/**
+ * 规则⑤ checked-state 归一(纯文本 CHECKED_STATE 驱动,符合 spec §4.1.2 规则⑤
+ * "开关旁文本归一")+ 规则② 动态归一(Task 4 增强)。含 NFC 归一(spec §4.1.1 编码规范)。
+ */
+export function normalizeText(e: FpElement, wl?: Set<string>): string {
   const t = (e.texts[0] ?? '').normalize('NFC');
   if (CHECKED_STATE.includes(t)) return 'CHECKED_STATE';
-  return normalizeDynamic(t);
+  return normalizeDynamic(t, wl);
 }
 
-/** 规则② 动态值归一(NUM/TIME/DATE 正则粗筛 + 静态白名单保留)。 */
-export function normalizeDynamic(t: string): string {
-  if (STATIC_CONTEXT.test(t)) return t;   // 静态保留(规则②白名单)
+/**
+ * 规则② 动态值归一(NUM/TIME/DATE 正则粗筛 + 静态白名单保留)。
+ *
+ * NUM 合并为单条正则 `\d[\d,]*(?:\.\d+)?`:任意长度数字(含千分位/小数)归一为单个 NUM,
+ * 避免旧的 `\d{1,3}` 限 3 位导致 4+ 位无逗号数字裂变为 "NUMNUM"。
+ *
+ * @param wl 时序学习白名单:命中文本原样保留(规则②)。
+ */
+export function normalizeDynamic(t: string, wl?: Set<string>): string {
+  if (wl?.has(t)) return t;                  // 规则② 时序白名单:跨 dump 不变 → 保留
+  if (STATIC_CONTEXT.test(t)) return t;      // 规则② 静态上下文白名单
   return t
-    .replace(/\d{4}-\d{2}-\d{2}/g, 'DATE')
+    .replace(/\d{4}-\d{1,2}-\d{1,2}/g, 'DATE')   // 月/日 1-2 位(放宽非零填充)
     .replace(/\d{1,2}:\d{2}/g, 'TIME')
-    .replace(/\d{1,3}(,\d{3})*(\.\d+)?/g, 'NUM')
-    .replace(/\d+/g, 'NUM');
+    .replace(/\d[\d,]*(?:\.\d+)?/g, 'NUM');      // 任意长度数字(含千分位/小数)→ 单个 NUM
 }
 
 /** 时序一致性学习:多次同位 text 值不变→静态,变→动态。供 spike/多 dump 调用。 */
@@ -77,15 +93,17 @@ function isAd(e: FpElement): boolean {
 }
 
 function isListItem(e: FpElement, containers: ReadonlyArray<FpElement>): boolean {
+  // TODO(后续阶段):嵌套滚动容器去重,只认最近祖先容器(避免 Scroll 内含 List 时内层子项被外层重复计数)。
   return containers.some((c) => isInside(e, c));
 }
 
 function isInside(child: FpElement, parent: FpElement): boolean {
+  // TODO(后续阶段):嵌套滚动容器去重,只认最近祖先容器。
   const [cl, ct, cr, cb] = child.bounds;
   const [pl, pt, pr, pb] = parent.bounds;
   return child !== parent && cl >= pl && ct >= pt && cr <= pr && cb <= pb;
 }
 
-function sig(e: FpElement): string {
-  return `${e.attrs.type ?? ''}:${normalizeDynamic((e.texts[0] ?? '').normalize('NFC'))}`;
+function sig(e: FpElement, wl?: Set<string>): string {
+  return `${e.attrs.type ?? ''}:${normalizeDynamic((e.texts[0] ?? '').normalize('NFC'), wl)}`;
 }

@@ -54,6 +54,15 @@ describe('MapStore', () => {
     expect(() => store.load('com.test', '1.0')).toThrow(/fingerprintVersion/);
   });
 
+  it('load 结构校验:nodes 字段缺失或非 Map → 抛错(防损坏文件静默误用)', () => {
+    const store = new MapStore(dir);
+    const file = join(dir, 'com.test-1.0.json');
+    // 写一个 fingerprintVersion 合法但 nodes 缺失的损坏文件
+    const { writeFileSync } = require('fs');
+    writeFileSync(file, JSON.stringify({ appBundle: 'com.test', appVersion: '1.0', fingerprintVersion: 'v1', edges: [], entryPoints: [] }));
+    expect(() => store.load('com.test', '1.0')).toThrow(/结构损坏|nodes/);
+  });
+
   it('list():列出已存档的 app', () => {
     const store = new MapStore(dir);
     store.save(emptyGraph('com.test', '1.0'));
@@ -108,5 +117,12 @@ describe('diffGraphs', () => {
     expect(d.revised.length).toBe(0);
     expect(d.added.map((n) => n.id)).toContain('new');
     expect(d.removed.map((n) => n.id)).toContain('old');
+  });
+
+  it('fingerprintVersion 不一致 → 拒绝 diff(防跨版本骨架静默假比较)', () => {
+    const a = graphWith('app', fpNode('h1', 'hash1', ['设置']));
+    a.fingerprintVersion = 'v0';
+    const b = graphWith('app', fpNode('h1', 'hash1', ['设置']));
+    expect(() => diffGraphs(a, b)).toThrow(/fingerprintVersion/);
   });
 });

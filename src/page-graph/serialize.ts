@@ -19,19 +19,22 @@ function nodeKey(n: NormalizedNode): string {
   return `${n.depth}:${n.type}:${n.text}`;
 }
 function listKey(l: ListSummary): string {
-  return `${l.type}:${l.countBucket}:${l.itemSigs.join(',')}`;
+  // 每个 itemSig 调用 escapeToken,防裸拼接逗号与 itemSig 内含逗号碰撞(静默假合并)。
+  return `${l.type}:${l.countBucket}:${l.itemSigs.map(escapeToken).join(',')}`;
 }
 function serializeNode(n: NormalizedNode): string {
-  return `N(${n.depth},${escape(n.type)},${escape(n.text)})`;
+  return `N(${n.depth},${escapeToken(n.type)},${escapeToken(n.text)})`;
 }
 function serializeList(l: ListSummary): string {
-  return `L(${escape(l.type)},${l.countBucket},{${l.itemSigs.join(',')}})`;
+  // 同上:itemSigs 逐个转义,防分隔符碰撞。
+  return `L(${escapeToken(l.type)},${l.countBucket},{${l.itemSigs.map(escapeToken).join(',')}})`;
 }
 
 function sortBy<T>(arr: T[], key: (x: T) => string): T[] {
   return arr.sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
 }
 
-function escape(s: string): string {
+/** 转义 S-expr 元字符(\ , ( ) { }),避免遮蔽全局 escape() 改名 escapeToken。 */
+function escapeToken(s: string): string {
   return s.replace(/([\\,(){}])/g, '\\$1');
 }
