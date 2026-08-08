@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeSkeleton, bucketize } from '../../../src/page-graph/normalize';
+import { normalizeSkeleton, bucketize, normalizeDynamic, learnStaticWhitelist } from '../../../src/page-graph/normalize';
 import type { FingerprintInput } from '../../../src/page-graph/types';
 
 // 类型化 helper(避免裸 any)。元素需符合 FingerprintInput.elements:Element & {checked?}
@@ -85,5 +85,68 @@ describe('normalizeSkeleton 补充', () => {
     const a = normalizeSkeleton({ elements: [el('点赞 42', 'Text')] });
     const b = normalizeSkeleton({ elements: [el('点赞 1,024', 'Text')] });
     expect(JSON.stringify(a.nodes)).toBe(JSON.stringify(b.nodes));
+  });
+});
+
+describe('规则② 动态归一增强', () => {
+  it('静态白名单:"第2屏"含数字但跨 dump 不变 → 保留(不归一)', () => {
+    expect(normalizeDynamic('第2屏')).toBe('第2屏');
+  });
+
+  it('静态白名单:第N屏/页/章/节/步 均保留', () => {
+    expect(normalizeDynamic('第3页')).toBe('第3页');
+    expect(normalizeDynamic('第10章')).toBe('第10章');
+    expect(normalizeDynamic('第5节')).toBe('第5节');
+    expect(normalizeDynamic('第1步')).toBe('第1步');
+  });
+
+  it('动态计数:"12 条新消息" → NUM 占位', () => {
+    expect(normalizeDynamic('12 条新消息')).toBe('NUM 条新消息');
+  });
+
+  it('learnStaticWhitelist:同位 text 跨 dump 不变=静态,变=动态', () => {
+    // 位置 0 三次 dump 都是"设置"(静态);位置 1 三次不同(动态)
+    const samePositionTexts = [
+      ['设置', '设置', '设置'],
+      ['12条', '5条', '8条'],
+    ];
+    const wl = learnStaticWhitelist(samePositionTexts);
+    expect(wl.has('设置')).toBe(true);
+    expect(wl.has('12条')).toBe(false);
+  });
+
+  it('learnStaticWhitelist:全部位置都变化 → 空白名单', () => {
+    const samePositionTexts = [
+      ['1', '2', '3'],
+      ['a', 'b', 'c'],
+    ];
+    expect(learnStaticWhitelist(samePositionTexts).size).toBe(0);
+  });
+});
+
+describe('isAd 英文 marker 词边界(修复误命中)', () => {
+  it('广告/推广/赞助 中文 marker 仍命中', () => {
+    const baseline = normalizeSkeleton({ elements: [el('正文', 'Text')] });
+    for (const marker of ['广告', '推广', '赞助']) {
+      const withAd = normalizeSkeleton({ elements: [el('正文', 'Text'), el(marker, 'Text')] });
+      expect(JSON.stringify(withAd.nodes), `marker=${marker}`).toBe(JSON.stringify(baseline.nodes));
+    }
+  });
+
+  it('header/leader/loading/reader/shadow 含 ad 子串但不是广告 → 不误剥', () => {
+    const words = ['header', 'leader', 'loading', 'reader', 'shadow'];
+    for (const w of words) {
+      const skeleton = normalizeSkeleton({ elements: [el('正文', 'Text'), el(w, 'Text')] });
+      const texts = skeleton.nodes.map((n) => n.text);
+      expect(texts, `word=${w}`).toContain(w);
+    }
+  });
+
+  it('独立 "ad"/"ads"/"AD"/"Sponsor" 仍命中广告剥离', () => {
+    const baseline = normalizeSkeleton({ elements: [el('正文', 'Text')] });
+    for (const marker of ['ad', 'ads', 'AD', 'Sponsor']) {
+      const withAd = normalizeSkeleton({ elements: [el('正文', 'Text'), el(marker, 'Text')] });
+      expect(JSON.stringify(withAd.nodes), `marker=${marker}`).toBe(JSON.stringify(baseline.nodes));
+    }
   });
 });

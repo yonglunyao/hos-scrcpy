@@ -1,7 +1,11 @@
 import type { FingerprintInput, NormalizedSkeleton, NormalizedNode, ListSummary } from './types';
 
-const AD_MARKERS = ['广告', 'ad', 'sponsor', '推广'];
+const AD_MARKERS_CN = ['广告', '推广', '赞助'];
+const AD_MARKERS_EN = /\bad(s)?\b|sponsor/i;
 const CHECKED_STATE = ['已开启', '已关闭', '已打开', '开启', '关闭', 'on', 'off'];
+
+/** 规则② 静态白名单:含数字但语义固定(跨 dump 不变),不归一。 */
+const STATIC_CONTEXT = /(第\d+[屏页章节步]|\d+个常用|\d+小时在线)/;
 
 type FpElement = FingerprintInput['elements'][number];
 
@@ -39,8 +43,9 @@ export function normalizeText(e: FpElement): string {
   return normalizeDynamic(t);
 }
 
-/** 规则② 动态值归一(NUM/TIME/DATE 正则粗筛;Task 4 加时序+白名单)。 */
+/** 规则② 动态值归一(NUM/TIME/DATE 正则粗筛 + 静态白名单保留)。 */
 export function normalizeDynamic(t: string): string {
+  if (STATIC_CONTEXT.test(t)) return t;   // 静态保留(规则②白名单)
   return t
     .replace(/\d{4}-\d{2}-\d{2}/g, 'DATE')
     .replace(/\d{1,2}:\d{2}/g, 'TIME')
@@ -48,9 +53,20 @@ export function normalizeDynamic(t: string): string {
     .replace(/\d+/g, 'NUM');
 }
 
+/** 时序一致性学习:多次同位 text 值不变→静态,变→动态。供 spike/多 dump 调用。 */
+export function learnStaticWhitelist(samePositionTexts: string[][]): Set<string> {
+  const statics = new Set<string>();
+  for (const positions of samePositionTexts) {
+    const unique = new Set(positions);
+    if (unique.size === 1) statics.add(positions[0]);   // 跨 dump 不变 = 静态
+  }
+  return statics;
+}
+
 function isAd(e: FpElement): boolean {
-  const t = (e.texts[0] ?? '').toLowerCase();
-  return AD_MARKERS.some((m) => t.includes(m));
+  const t = (e.texts[0] ?? '');
+  if (AD_MARKERS_CN.some((m) => t.includes(m))) return true;
+  return AD_MARKERS_EN.test(t);
 }
 
 function isListItem(e: FpElement, containers: ReadonlyArray<FpElement>): boolean {
