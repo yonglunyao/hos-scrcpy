@@ -20,7 +20,7 @@ const root = model([
   el('设置', 'Text', { bounds: [0, 0, 1080, 100], clickable: false }),
   el('关于手机', 'Button', { bounds: [0, 100, 540, 200] }),
 ]);
-const about = model([el('设备名称', 'Text', { bounds: [0, 0, 1080, 80] })]);   // 入口页:无白名单候选 → frontier 空
+const about = model([el('设备名称', 'Text', { bounds: [0, 0, 1080, 80], clickable: false })]);   // 入口页:纯文本 → frontier 空
 
 describe('Explorer', () => {
   it('navigate 到新页 → 建两节点 + navigate 边 + 增量落盘', async () => {

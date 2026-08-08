@@ -36,8 +36,7 @@ export function extractFrontier(
     if (e.attrs.clickable === false) continue;
     if (e.attrs.enabled === false) continue;
     const v = opts.safety(e);
-    if (v.reason === 'blacklist') { dangerous++; continue; }
-    if (!v.allow) continue;   // default-deny 不计入候选
+    if (!v.allow) continue;   // 不计入候选
     const loc: Locator = e.texts[0] ? { text: e.texts[0] } : { hint: e.hint };
     if (opts.exploredSignatures.has(locatorSignature(loc))) continue;
 
