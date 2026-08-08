@@ -25,7 +25,7 @@ function navEdge(from: string, to: string): Edge {
   return { from, locator: { text: 'go-' + to }, fallbackCoord: { x: 100, y: 100 }, to, opType: 'navigate', backNavigable: 'unknown', effectReversible: false, verified: true };
 }
 function graphOf(ms: ScreenModel[], edges: Edge[]): PageGraph {
-  return { appBundle: 't', appVersion: '1', fingerprintVersion: 'v1', nodes: new Map(ms.map((m) => [fpOf(m).skeletonHash, nodeFor(m)])), edges, entryPoints: [] };
+  return { appBundle: 't', appVersion: '1', fingerprintVersion: 'v2', nodes: new Map(ms.map((m) => [fpOf(m).skeletonHash, nodeFor(m)])), edges, entryPoints: [] };
 }
 const cfg = (over: Partial<NavConfig> = {}): NavConfig => ({ maxPathSteps: 6, maxReverify: 1, maxBadEdges: 2, ...over });
 

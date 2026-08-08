@@ -3,7 +3,7 @@ import { classifyInconsistency } from '../../../src/page-graph/decision';
 import type { PageFingerprint } from '../../../src/page-graph/types';
 import type { PopupInfo } from '../../../src/page-graph/popup';
 
-function fp(hash: string, anchors: string[]): PageFingerprint { return { version: 'v1', skeletonHash: hash, anchors }; }
+function fp(hash: string, anchors: string[]): PageFingerprint { return { version: 'v2', skeletonHash: hash, anchors }; }
 const popup: PopupInfo = { kind: 'dialog' };
 
 describe('classifyInconsistency', () => {

@@ -3,13 +3,13 @@ import { planPath } from '../../../src/explore/bfs';
 import type { PageGraph, PageNode, Edge } from '../../../src/page-graph';
 
 function node(id: string, anchors: string[] = []): PageNode {
-  return { id, fingerprint: { version: 'v1', skeletonHash: id, anchors }, skeletonArchive: { nodes: [], lists: [] }, frontierExplored: [], frontierPending: [], visitedAt: 0 };
+  return { id, fingerprint: { version: 'v2', skeletonHash: id, anchors }, skeletonArchive: { nodes: [], lists: [] }, frontierExplored: [], frontierPending: [], visitedAt: 0 };
 }
 function edge(from: string, to: string, opType: Edge['opType'] = 'navigate', verified = true): Edge {
   return { from, locator: { text: to }, to, opType, backNavigable: 'unknown', effectReversible: false, verified };
 }
 function graph(nodes: PageNode[], edges: Edge[]): PageGraph {
-  return { appBundle: 't', appVersion: '1', fingerprintVersion: 'v1', nodes: new Map(nodes.map((n) => [n.id, n])), edges, entryPoints: [] };
+  return { appBundle: 't', appVersion: '1', fingerprintVersion: 'v2', nodes: new Map(nodes.map((n) => [n.id, n])), edges, entryPoints: [] };
 }
 
 describe('planPath', () => {

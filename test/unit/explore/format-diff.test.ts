@@ -3,7 +3,7 @@ import { formatDiff } from '../../../src/explore/format-diff';
 import type { GraphDiff, PageNode } from '../../../src/page-graph';
 
 function node(id: string, anchors: string[] = []): PageNode {
-  return { id, fingerprint: { version: 'v1', skeletonHash: id, anchors }, skeletonArchive: { nodes: [], lists: [] }, frontierExplored: [], frontierPending: [], visitedAt: 0 };
+  return { id, fingerprint: { version: 'v2', skeletonHash: id, anchors }, skeletonArchive: { nodes: [], lists: [] }, frontierExplored: [], frontierPending: [], visitedAt: 0 };
 }
 
 describe('formatDiff', () => {

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { classifyOpType } from '../../../src/explore/op-type';
 import type { PageFingerprint, PopupInfo } from '../../../src/page-graph';
 
-function fp(hash: string, anchors: string[]): PageFingerprint { return { version: 'v1', skeletonHash: hash, anchors }; }
+function fp(hash: string, anchors: string[]): PageFingerprint { return { version: 'v2', skeletonHash: hash, anchors }; }
 const popup: PopupInfo = { kind: 'dialog' };
 
 describe('classifyOpType', () => {

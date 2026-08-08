@@ -57,6 +57,7 @@ describe('Explorer', () => {
     const exp = new Explorer(new ActExecutor(dev, { stallMs: 0 }), dev, cfg({ maxSteps: 30 }), new MapStore(dir));
     await exp.explore();
     expect(dev.calls.launch.length).toBeGreaterThanOrEqual(1);
+    expect(dev.calls.forceStop).toBeGreaterThanOrEqual(1);
   });
 
   it('终止:连续无新页达阈值 → terminated=no-new-page', async () => {
