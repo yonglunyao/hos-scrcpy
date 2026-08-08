@@ -31,7 +31,15 @@ export function closeSocket(sock: net.Socket | null): void {
 }
 
 /**
- * 发送普通请求并等待响应
+ * 每个 socket 的响应累积缓冲。
+ *
+ * daemon 响应为单行 JSON(以 \n 结尾)。TCP 会分包/合包,导致一个 `data` 事件
+ * 未必等于一条完整响应。这里按 \n 切分、跨事件累积,保证连续请求不错位。
+ */
+const respBuffers = new WeakMap<net.Socket, string>();
+
+/**
+ * 发送普通请求并等待一行响应(按 \n 切分,正确处理 TCP 分包/合包)。
  */
 export function sendRequest(
   socket: net.Socket | null,
@@ -43,21 +51,28 @@ export function sendRequest(
       reject(new Error('Uitest not ready'));
       return;
     }
-    const data = Buffer.from(request, 'utf-8');
+    const sock = socket;
 
-    const onData = (buf: Buffer) => {
-      socket!.off('data', onData);
-      resolve(buf.toString('utf-8'));
+    const onData = (chunk: Buffer) => {
+      const acc = (respBuffers.get(sock) ?? '') + chunk.toString('utf-8');
+      const nl = acc.indexOf('\n');
+      if (nl >= 0) {
+        respBuffers.set(sock, acc.slice(nl + 1));
+        sock.off('data', onData);
+        sock.off('error', onError);
+        resolve(acc.slice(0, nl));
+      } else {
+        respBuffers.set(sock, acc);
+      }
     };
-
     const onError = (err: Error) => {
-      socket!.off('data', onData);
+      sock.off('data', onData);
       reject(err);
     };
 
-    socket.once('data', onData);
-    socket.once('error', onError);
-    socket.write(data);
+    sock.on('data', onData);
+    sock.once('error', onError);
+    sock.write(Buffer.from(request, 'utf-8'));
   });
 }
 
