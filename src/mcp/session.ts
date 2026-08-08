@@ -197,6 +197,7 @@ export async function actByRef(
     await uitest.touchDown(x, y);
     await uitest.touchUp(x, y);
     if (op === 'doubleClick') {
+      await sleep(120); // 双击间隔,确保被识别为独立两次触摸
       await uitest.touchDown(x, y);
       await uitest.touchUp(x, y);
     }

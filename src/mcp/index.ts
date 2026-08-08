@@ -216,7 +216,7 @@ export function createMcpServer(): McpServer {
       inputSchema: { locator: locatorSchema },
       annotations: READ_ONLY,
     },
-    async ({ locator }) => text(`找到:${findByLocator(locator as Locator)}`),
+    async ({ locator }) => text(findByLocator(locator as Locator)),
   );
 
   // ── 触摸 / 手势(复用 UitestServer socket,与 Web 同源) ──
