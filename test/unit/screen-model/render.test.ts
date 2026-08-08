@@ -22,4 +22,30 @@ describe('renderModel', () => {
     const out = renderModel(model([mk({ ref: '@e1#s1', bounds: [10,20,30,40], texts: ['x'] })]));
     expect(out).not.toContain('10,20');
   });
+  it('texts 超过 6 个时截断,只显示前 6 并追加 ...(+N)', () => {
+    const texts = ['一', '二', '三', '四', '五', '六', '七', '八'];
+    const out = renderModel(model([mk({ ref: '@e1#s1', attrs: { type: 'Row' }, texts })]));
+    // 前 6 个应出现
+    expect(out).toContain('一');
+    expect(out).toContain('六');
+    // 第 7、8 个不应出现
+    expect(out).not.toContain('七');
+    expect(out).not.toContain('八');
+    // 截断标记:(8 - 6) = 2 个被截断
+    expect(out).toContain('...(+2)');
+  });
+  it('texts 恰好 6 个时不截断(无 ...(+N) 标记)', () => {
+    const texts = ['一', '二', '三', '四', '五', '六'];
+    const out = renderModel(model([mk({ ref: '@e1#s1', attrs: { type: 'Row' }, texts })]));
+    expect(out).not.toContain('...(+');
+    expect(out).toContain('六');
+  });
+  it('texts 少于 6 个时正常显示全部', () => {
+    const texts = ['主', '副1', '副2'];
+    const out = renderModel(model([mk({ ref: '@e1#s1', attrs: { type: 'Row' }, texts })]));
+    expect(out).toContain('主');
+    expect(out).toContain('副1');
+    expect(out).toContain('副2');
+    expect(out).not.toContain('...(+');
+  });
 });
