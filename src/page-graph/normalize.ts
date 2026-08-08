@@ -1,4 +1,5 @@
 import type { FingerprintInput, NormalizedSkeleton, NormalizedNode, ListSummary } from './types';
+import { geometrySignature } from './geometry';
 
 const AD_MARKERS_CN = ['广告', '推广', '赞助'];
 const AD_MARKERS_EN = /\bad(s)?\b|sponsor/i;
@@ -33,7 +34,13 @@ export function normalizeSkeleton(input: FingerprintInput): NormalizedSkeleton {
     .filter((e) => !isAd(e) && !isListItem(e, listEls))
     .map((e) => ({ text: normalizeText(e), type: e.attrs.type ?? 'Unknown', depth: 0 }));
 
-  return { nodes, lists };
+  // 纯图标页(所有 node 无 text):骨架退化为 type+层级会假合并,补几何布局维度。
+  // normalizeText 对空 text 返回 '',故空 texts 元素 → nodes.text='' → 触发本分支。
+  const skeleton: NormalizedSkeleton = { nodes, lists };
+  if (nodes.every((n) => !n.text)) {
+    skeleton.geometry = geometrySignature(input);
+  }
+  return skeleton;
 }
 
 /** 规则⑤ checked-state 归一 + 规则② 动态归一(Task 4 增强)。含 NFC 归一(spec §4.1.1 编码规范)。 */

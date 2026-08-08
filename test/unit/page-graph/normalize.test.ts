@@ -150,3 +150,43 @@ describe('isAd 英文 marker 词边界(修复误命中)', () => {
     }
   });
 });
+
+describe('纯图标页几何签名集成(geometry 字段)', () => {
+  function iconEl(x: number, y: number): FingerprintInput['elements'][number] {
+    return {
+      ref: '@e0#s1', bounds: [0, 0, 50, 50], center: { x, y },
+      texts: [], attrs: { clickable: true, type: 'Image' },
+    };
+  }
+
+  it('纯图标页(所有 node 无 text)→ 填 geometry', () => {
+    const sk = normalizeSkeleton({
+      elements: [iconEl(50, 50), iconEl(150, 50)],
+      screenSize: { w: 400, h: 800 },
+    });
+    expect(sk.geometry).toBeTruthy();
+  });
+
+  it('混合页(有 text node)→ 不填 geometry', () => {
+    const sk = normalizeSkeleton({
+      elements: [el('按钮', 'Button'), iconEl(150, 50)],
+      screenSize: { w: 400, h: 800 },
+    });
+    expect(sk.geometry).toBeUndefined();
+  });
+
+  it('Task3/4 规则不受影响:广告剥离 + checked 归一仍生效', () => {
+    // 含广告的纯图标页:广告被剥离,几何签名仅含图标
+    const adEl: FingerprintInput['elements'][number] = {
+      ref: '@e1#s1', bounds: [0, 0, 50, 50], center: { x: 200, y: 200 },
+      texts: ['广告'], attrs: { clickable: true, type: 'Image' },
+    };
+    const sk = normalizeSkeleton({
+      elements: [iconEl(50, 50), adEl],
+      screenSize: { w: 400, h: 800 },
+    });
+    // 广告被剥离 → nodes 只有图标;texts=['广告'] 非 empty → 不进 geometry cells
+    expect(sk.nodes.map((n) => n.text)).toEqual(['']);
+    expect(sk.geometry).not.toContain('广告');
+  });
+});
