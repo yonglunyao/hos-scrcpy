@@ -1,6 +1,8 @@
 import { WebSocket } from 'ws';
 import { IDeviceManager, IUitestServer, IScrcpyStream } from './interfaces';
 import { DirectScrcpyStream } from '../capture/direct-scrcpy';
+import { Recorder } from '../record/recorder';
+import type { RecordedAction } from '../record/recorder';
 import {
   UINPUT_MONITOR_TIMEOUT_SEC,
   UINPUT_TOUCH_TIMEOUT_SEC,
@@ -22,6 +24,7 @@ export class DeviceContext {
   private startLock: Promise<void> | null = null;
   private persistent: boolean = false;  // 持久化标记：无 WS 客户端时也保持投屏
   private captureIntervals = new WeakMap<WebSocket, NodeJS.Timeout>();
+  private recorder: Recorder | null = null;
 
   /**
    * 依赖注入构造函数 — 接收已创建的依赖
@@ -85,6 +88,40 @@ export class DeviceContext {
 
   isPersistent(): boolean {
     return this.persistent;
+  }
+
+  // ── 脚本录制 / 回放(复用共享 Recorder,与 MCP 同实现) ──
+  getRecorder(): Recorder {
+    if (!this.recorder) this.recorder = new Recorder(this.manager);
+    return this.recorder;
+  }
+
+  isRecording(): boolean {
+    return this.recorder?.isRecording() ?? false;
+  }
+
+  async startRecord(): Promise<void> {
+    await this.getRecorder().start();
+  }
+
+  async stopRecord(): Promise<RecordedAction[]> {
+    return this.getRecorder().stop();
+  }
+
+  async replayActions(actions: RecordedAction[]): Promise<string[]> {
+    return this.getRecorder().replay(actions);
+  }
+
+  isReplaying(): boolean {
+    return this.recorder?.isReplaying() ?? false;
+  }
+
+  startReplay(actions: RecordedAction[]): void {
+    this.getRecorder().startReplay(actions);
+  }
+
+  async stopReplay(): Promise<void> {
+    if (this.recorder) await this.recorder.stopReplay();
   }
 
 
@@ -258,6 +295,10 @@ export class DeviceContext {
 
   async stop(): Promise<void> {
     await this.stopCast();
+    if (this.recorder) {
+      await this.recorder.dispose().catch(() => undefined);
+      this.recorder = null;
+    }
     await this.uitest.stop();
     // 清理所有 capture intervals
     for (const ws of this.wsClients.values()) {

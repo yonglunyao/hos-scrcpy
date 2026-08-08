@@ -26,11 +26,18 @@ import {
   connectSession,
   disconnectSession,
   dumpLayoutRaw,
+  exportScript,
   flattenLayout,
   getSession,
+  importScript,
   listDevices,
   requireSession,
+  replayActions,
   sleep,
+  startReplayActions,
+  startRecord,
+  stopRecord,
+  stopReplayActions,
 } from './session';
 
 const READ_ONLY = { readOnlyHint: true } as const;
@@ -39,6 +46,15 @@ const DESTRUCTIVE = { destructiveHint: true } as const;
 const text = (t: string) => ({ content: [{ type: 'text' as const, text: t }] });
 
 const SWIPE_STEP_MS = 16;
+
+const actionSchema = z.object({
+  op: z.string().describe('click/doubleClick/longClick/fling/drag'),
+  x: z.number().int(),
+  y: z.number().int(),
+  x2: z.number().int().optional(),
+  y2: z.number().int().optional(),
+  velocity: z.number().int().optional(),
+});
 
 export function createMcpServer(): McpServer {
   const server = new McpServer({ name: 'hos-scrcpy-mcp', version: '1.0.0' });
@@ -164,8 +180,8 @@ export function createMcpServer(): McpServer {
     'tap',
     {
       description:
-        '在设备坐标 (x, y) 点击屏幕。坐标为设备像素(非视频缩放坐标),' +
-        '取自 dump_ui 元素的 center 或由截图估算。需先 connect_device。',
+        '【设备操作·点击】在设备坐标 (x, y) 点击屏幕(这是"点击设备",不是录制/回放控制)。' +
+        '坐标为设备像素(非视频缩放坐标),取自 dump_ui 元素的 center 或由截图估算。需先 connect_device。',
       inputSchema: {
         x: z.number().int().describe('设备 X 坐标'),
         y: z.number().int().describe('设备 Y 坐标'),
@@ -370,6 +386,109 @@ export function createMcpServer(): McpServer {
       const { device } = requireSession();
       await device.getHdc().pullFile(remote_path, local_path);
       return text(`已拉取 ${remote_path} -> ${local_path}。`);
+    },
+  );
+
+  // ── 脚本录制 / 回放(复用系统 uiRecord + uiInput) ──
+
+  server.registerTool(
+    'start_record',
+    {
+      description:
+        '【录制·启动】启动系统 UI 录制(注意:这是"开始录制脚本",不是点击设备,也不是回放)。' +
+        '录制期间设备上的操作(手动或 tap/swipe 注入)会被记录。需先 connect_device;同一时间只能一个录制。流程:start_record → 操作 → stop_record。',
+      inputSchema: {},
+      annotations: DESTRUCTIVE,
+    },
+    async () => {
+      await startRecord();
+      return text('录制已启动。现在操作设备(手动或用 tap/swipe),完成后调用 stop_record 取回操作列表。');
+    },
+  );
+
+  server.registerTool(
+    'stop_record',
+    {
+      description:
+        '【录制·停止】停止录制,解析系统 record.csv 返回操作列表(注意:这是"结束录制",不是点击或回放)。' +
+        '每步含 op(click/fling/drag 等)与坐标。该列表可传给 replay/start_replay 回放,或保存复用。',
+      inputSchema: {},
+      annotations: READ_ONLY,
+    },
+    async () => {
+      const actions = await stopRecord();
+      return text(JSON.stringify({ count: actions.length, actions }, null, 2));
+    },
+  );
+
+  server.registerTool(
+    'replay',
+    {
+      description:
+        '【回放·同步】按顺序回放操作列表(一次执行完,不可中断;区别于 start_replay 的可控回放)。' +
+        '每步映射到系统 uitest uiInput 执行。actions 来自 stop_record、手写或导入。op 支持:click/doubleClick/longClick/fling/drag。',
+      inputSchema: {
+        actions: z.array(actionSchema).describe('操作列表(来自 stop_record 或手写)'),
+      },
+      annotations: DESTRUCTIVE,
+    },
+    async ({ actions }) => {
+      const cmds = await replayActions(actions);
+      return text(`已回放 ${cmds.length} 步:\n${cmds.join('\n')}`);
+    },
+  );
+
+  server.registerTool(
+    'export_script',
+    {
+      description:
+        '把操作列表导出为本地 JSON 文件,可保存复用、手写编辑、版本管理、跨工具兼容。' +
+        'actions 来自 stop_record;path 为宿主机保存路径(如 ./login.json)。',
+      inputSchema: {
+        actions: z.array(actionSchema).describe('要导出的操作列表'),
+        path: z.string().describe('宿主机保存路径,如 ./login.json'),
+      },
+      annotations: READ_ONLY,
+    },
+    async ({ actions, path: p }) => {
+      exportScript(actions, p);
+      return text(`已导出 ${actions.length} 步到 ${p}`);
+    },
+  );
+
+  server.registerTool(
+    'start_replay',
+    {
+      description:
+        '【回放·启动】启动可控回放(后台异步、可被 stop_replay 中断;注意:这是"开始回放脚本",不是点击或录制)。' +
+        '入参二选一:actions 直接传操作列表,或 path 从本地脚本文件导入(简化 JSON 或系统 csv)。' +
+        '同一时刻仅一个回放。文件格式与 export_script 导出的一致。',
+      inputSchema: {
+        actions: z.array(actionSchema).optional().describe('操作列表(与 path 二选一)'),
+        path: z.string().optional().describe('脚本文件路径(与 actions 二选一)'),
+      },
+      annotations: DESTRUCTIVE,
+    },
+    async ({ actions, path: p }) => {
+      const list = actions ?? (p ? importScript(p) : undefined);
+      if (!list || list.length === 0) {
+        throw new Error('需提供 actions 或 path(且非空)');
+      }
+      startReplayActions(list);
+      return text(`已启动可控回放 ${list.length} 步(后台执行),用 stop_replay 中断。`);
+    },
+  );
+
+  server.registerTool(
+    'stop_replay',
+    {
+      description: '【回放·停止】停止正在进行的可控回放(由 start_replay 启动;注意:这是"停止回放",不是停止录制 stop_record)。',
+      inputSchema: {},
+      annotations: DESTRUCTIVE,
+    },
+    async () => {
+      await stopReplayActions();
+      return text('已停止回放。');
     },
   );
 

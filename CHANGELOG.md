@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.0] - 2026-08-08
+
+### 新增功能 (Added)
+
+#### 脚本录制与回放(MCP + 网页版)
+- 提取共享 `Recorder`(`src/record/recorder.ts`),MCP 与 Web 投屏复用同一录制/回放实现
+- 复用 HarmonyOS 系统能力:录制走 `uitest uiRecord`(写 record.csv),回放走 `uitest uiInput`
+- MCP:新增 `start_record` / `stop_record` / `replay` 三个工具
+- 网页版:WebSocket 消息 `start_record` / `stop_record` / `replay` + 控制面板"脚本录制/回放"按钮(区别于视频录屏)
+- 脚本导出/导入:`export_script` 导出 JSON;`start_replay` 支持从文件导入(简化 JSON 或系统 csv)
+- 可控回放:`start_replay`(后台异步、步间可中断)/ `stop_replay`(停止);网页版配"停止回放/导出脚本"按钮
+- 操作格式与系统 csv 同源(`OP_TYPE` + 坐标),可保存复用、手写编辑、跨工具兼容
+- 解决系统录制可控性:`pkill -f uiRecord` 清理 AAMS 单连接残留 + 停止;停止前 flush 等待避免 fling 漏录
+
+### 修复 (Fixed)
+
+- 网页版按键报 `keyCode message must have a code field`:前端 `sendKeyEvent` 只发 `key`、后端却强制 `code`,改为 `code` 可选、用 `key` 经 `getHdcKeyCode` 推导键码
+
 ## [1.3.0] - 2026-08-08
 
 ### 新增功能 (Added)

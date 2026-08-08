@@ -14,6 +14,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { DeviceManager } from '../device/application/device-manager';
+import { Recorder } from '../record/recorder';
+import type { RecordedAction } from '../record/recorder';
 import { HdcClient } from '../device/hdc';
 import { UitestServer } from '../input/infrastructure/uitest-server';
 import { SCREENSHOT_TIMEOUT_SEC } from '../constants';
@@ -76,6 +78,10 @@ export async function disconnectSession(): Promise<void> {
   if (!session) return;
   const prev = session;
   session = null;
+  if (recorder) {
+    await recorder.dispose().catch(() => undefined);
+    recorder = null;
+  }
   await Promise.race([
     (async () => {
       try {
@@ -229,3 +235,36 @@ export function flattenLayout(layoutStr: string): UiElement[] {
   visit(root);
   return elements;
 }
+
+// ── 脚本录制 / 回放(薄封装共享 Recorder,MCP 与 Web 复用同一实现) ──
+
+let recorder: Recorder | null = null;
+
+export async function startRecord(): Promise<void> {
+  if (!recorder) recorder = new Recorder(requireSession().device);
+  await recorder.start();
+}
+
+export async function stopRecord(): Promise<RecordedAction[]> {
+  if (!recorder) throw new Error('No active recording. Call start_record first.');
+  return recorder.stop();
+}
+
+export async function replayActions(actions: RecordedAction[]): Promise<string[]> {
+  if (!recorder) recorder = new Recorder(requireSession().device);
+  return recorder.replay(actions);
+}
+
+/** 启动可控回放(后台异步,可被 stopReplay 中断)。 */
+export function startReplayActions(actions: RecordedAction[]): void {
+  if (!recorder) recorder = new Recorder(requireSession().device);
+  recorder.startReplay(actions);
+}
+
+/** 停止可控回放。 */
+export async function stopReplayActions(): Promise<void> {
+  if (recorder) await recorder.stopReplay();
+}
+
+export { exportScript, importScript, parseRecordCsv } from '../record/recorder';
+export type { RecordedAction } from '../record/recorder';

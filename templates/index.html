@@ -292,6 +292,17 @@
                         <button class="btn btn-secondary" id="recordBtn" onclick="toggleRecording()" disabled>⏺ 开始录屏</button>
                     </div>
                 </div>
+                <div class="sidebar-section">
+                    <div class="section-title">脚本录制</div>
+                    <div class="control-buttons">
+                        <button class="btn btn-secondary" id="actionRecordBtn" onclick="toggleActionRecording()" disabled>⏺ 录制操作</button>
+                        <button class="btn btn-secondary" id="replayBtn" onclick="toggleReplayScript()" disabled>▶ 回放</button>
+                        <button class="btn btn-secondary" id="exportBtn" onclick="exportScriptFile()" disabled>💾 导出</button>
+                        <button class="btn btn-secondary" id="importBtn" onclick="document.getElementById('scriptFileInput').click()" disabled>📂 导入</button>
+                    </div>
+                    <div id="scriptInfo" style="font-size:12px;color:#888;margin-top:6px;">当前脚本:无</div>
+                    <input type="file" id="scriptFileInput" accept=".json,.csv" style="display:none" onchange="loadScriptFile(event)">
+                </div>
             </div>
 
             <!-- 列4: 日志 -->
@@ -417,6 +428,10 @@
                         // 启用截屏和录屏按钮
                         document.getElementById('screenshotBtn').disabled = false;
                         document.getElementById('recordBtn').disabled = false;
+                        document.getElementById('actionRecordBtn').disabled = false;
+                        document.getElementById('replayBtn').disabled = false;
+                        document.getElementById('exportBtn').disabled = false;
+                        document.getElementById('importBtn').disabled = false;
                     }).catch(e => log('自动播放失败: ' + e.message, 'error'));
 
                     // 超激进缓冲管理 - 优先低延迟
@@ -463,6 +478,22 @@
                         if (msg.type === 'screenConfig' && msg.scale) {
                             screenScale = msg.scale;
                             log(`屏幕缩放倍率: ${screenScale}x`, 'info');
+                        } else if (msg.type === 'record_started') {
+                            log('脚本录制已开始(现在操作设备)', 'info');
+                        } else if (msg.type === 'record_result') {
+                            recordedActions = msg.actions || [];
+                            updateScriptInfo('录制');
+                            log(`脚本录制完成:${recordedActions.length} 步,可点"回放"`, 'success');
+                        } else if (msg.type === 'replay_done') {
+                            log(`脚本回放完成:${msg.count} 步`, 'success');
+                        } else if (msg.type === 'replay_started') {
+                            setReplayButton(true);
+                            log(`可控回放已启动:${msg.count} 步(再次点击停止)`, 'info');
+                        } else if (msg.type === 'replay_stopped') {
+                            setReplayButton(false);
+                            log('可控回放已停止', 'info');
+                        } else if (msg.type === 'error') {
+                            log(`错误:${msg.message}`, 'error');
                         }
                     } catch {}
                     return;
@@ -505,6 +536,10 @@
             // 禁用截屏和录屏按钮
             document.getElementById('screenshotBtn').disabled = true;
             document.getElementById('recordBtn').disabled = true;
+            document.getElementById('actionRecordBtn').disabled = true;
+            document.getElementById('replayBtn').disabled = true;
+            document.getElementById('exportBtn').disabled = true;
+            document.getElementById('importBtn').disabled = true;
             document.getElementById('screenVideo').style.display = 'none';
             document.getElementById('placeholder').style.display = 'block';
             updateStatus('disconnected', '已停止');
@@ -588,6 +623,110 @@
         }
 
         // 录屏功能
+        let recordedActions = [];
+        let isActionRecording = false;
+
+        function toggleActionRecording() {
+            if (!ws || !currentDevice) return;
+            if (!isActionRecording) {
+                ws.send(JSON.stringify({ type: 'start_record', sn: currentDevice }));
+                isActionRecording = true;
+                const btn = document.getElementById('actionRecordBtn');
+                btn.textContent = '⏹ 停止录制';
+                btn.classList.add('btn-danger');
+                log('开始脚本录制...', 'info');
+            } else {
+                ws.send(JSON.stringify({ type: 'stop_record', sn: currentDevice }));
+                isActionRecording = false;
+                const btn = document.getElementById('actionRecordBtn');
+                btn.textContent = '⏺ 录制操作';
+                btn.classList.remove('btn-danger');
+                log('停止脚本录制,解析中...', 'info');
+            }
+        }
+
+        let isReplaying = false;
+
+        function toggleReplayScript() {
+            if (!ws || !currentDevice) return;
+            if (isReplaying) {
+                ws.send(JSON.stringify({ type: 'stop_replay', sn: currentDevice }));
+                log('停止可控回放...', 'info');
+            } else {
+                if (!recordedActions || recordedActions.length === 0) {
+                    log('没有可回放的操作(先录制)', 'error');
+                    return;
+                }
+                ws.send(JSON.stringify({ type: 'start_replay', sn: currentDevice, message: { actions: recordedActions } }));
+                log(`启动可控回放 ${recordedActions.length} 步...`, 'info');
+            }
+        }
+
+        function setReplayButton(replaying) {
+            isReplaying = replaying;
+            const btn = document.getElementById('replayBtn');
+            if (replaying) {
+                btn.textContent = '⏹ 停止回放';
+                btn.classList.add('btn-danger');
+            } else {
+                btn.textContent = '▶ 回放';
+                btn.classList.remove('btn-danger');
+            }
+        }
+
+        function exportScriptFile() {
+            if (!recordedActions || recordedActions.length === 0) {
+                log('没有可导出的操作(先录制)', 'error');
+                return;
+            }
+            const blob = new Blob([JSON.stringify(recordedActions, null, 2)], { type: 'application/json' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `script_${currentDevice}_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+            a.click();
+            URL.revokeObjectURL(a.href);
+            log(`已导出 ${recordedActions.length} 步到 ${a.download}`, 'success');
+        }
+
+        function loadScriptFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const text = String(e.target.result || '').trim();
+                    let arr;
+                    if (text.startsWith('[')) {
+                        arr = JSON.parse(text); // 导出的简化 JSON
+                    } else {
+                        // 系统 csv(JSON Lines):逐行解析
+                        arr = text.split(/\r?\n/).filter(l => l.trim().startsWith('{')).map(l => {
+                            const o = JSON.parse(l); const f = (o.fingerList && o.fingerList[0]) || {};
+                            return {
+                                op: o.OP_TYPE || 'click',
+                                x: parseInt(f.X_POSI || '0', 10), y: parseInt(f.Y_POSI || '0', 10),
+                                x2: f.X2_POSI !== undefined ? parseInt(f.X2_POSI, 10) : undefined,
+                                y2: f.Y2_POSI !== undefined ? parseInt(f.Y2_POSI, 10) : undefined,
+                            };
+                        });
+                    }
+                    if (!Array.isArray(arr) || arr.length === 0) throw new Error('脚本为空或格式不支持');
+                    recordedActions = arr;
+                    updateScriptInfo('导入 ' + file.name);
+                    log(`已导入脚本 ${recordedActions.length} 步(${file.name})`, 'success');
+                } catch (err) {
+                    log(`导入失败:${err.message}`, 'error');
+                }
+                event.target.value = ''; // 允许重选同一文件
+            };
+            reader.readAsText(file);
+        }
+
+        function updateScriptInfo(source) {
+            const n = recordedActions ? recordedActions.length : 0;
+            document.getElementById('scriptInfo').textContent = '当前脚本:' + (n > 0 ? `${n} 步(${source})` : '无');
+        }
+
         function toggleRecording() {
             if (isRecording) {
                 stopRecording();

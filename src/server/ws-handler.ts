@@ -7,6 +7,7 @@ import * as http from 'http';
 import { DeviceContext } from '../device/context';
 import { IDeviceFactory } from '../device/interfaces';
 import { getHdcKeyCode } from '../input/keycode';
+import type { RecordedAction } from '../record/recorder';
 import { createChildLogger } from '../shared/logger';
 import type { ServerConfig } from '../shared/types';
 import {
@@ -19,11 +20,15 @@ import {
 
 const logger = createChildLogger('WsHandler');
 
+function errMsg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
 /**
  * WebSocket 消息类型定义
  */
 export interface WsMessage {
-  type: 'screen' | 'uitest' | 'touchEvent' | 'keyCode' | 'stop';
+  type: 'screen' | 'uitest' | 'touchEvent' | 'keyCode' | 'stop' | 'start_record' | 'stop_record' | 'replay' | 'start_replay' | 'stop_replay';
   sn?: string;
   remoteIp?: string;
   remotePort?: string;
@@ -112,7 +117,7 @@ export class WsHandler {
       throw new Error('Message must have a valid type field');
     }
 
-    const validTypes = ['screen', 'uitest', 'touchEvent', 'keyCode', 'stop'];
+    const validTypes = ['screen', 'uitest', 'touchEvent', 'keyCode', 'stop', 'start_record', 'stop_record', 'replay', 'start_replay', 'stop_replay'];
     if (!validTypes.includes(jsonMsg.type)) {
       throw new Error(`Invalid message type: ${jsonMsg.type}. Valid types: ${validTypes.join(', ')}`);
     }
@@ -133,6 +138,16 @@ export class WsHandler {
       await this.handleKeyCode(sn, msg);
     } else if (type === 'stop') {
       await this.handleStop(sn);
+    } else if (type === 'start_record') {
+      await this.handleStartRecord(sn, ws);
+    } else if (type === 'stop_record') {
+      await this.handleStopRecord(sn, ws);
+    } else if (type === 'replay') {
+      await this.handleReplay(sn, msg, ws);
+    } else if (type === 'start_replay') {
+      await this.handleStartReplay(sn, msg, ws);
+    } else if (type === 'stop_replay') {
+      await this.handleStopReplay(sn, ws);
     }
   }
 
@@ -196,15 +211,12 @@ export class WsHandler {
     if (!msg.key || typeof msg.key !== 'string') {
       throw new Error('keyCode message must have a key field');
     }
-    if (!msg.code || typeof msg.code !== 'string') {
-      throw new Error('keyCode message must have a code field');
-    }
 
     const ctx = this.devices.get(sn);
     if (!ctx) return;
 
     const key = msg.key as string;
-    const code = msg.code as string;
+    const code = typeof msg.code === 'string' ? (msg.code as string) : undefined;
     const hdcCode = getHdcKeyCode(key, code);
     if (hdcCode !== null) {
       const handled = ctx.uitest?.isUitestRunning() ? await ctx.uitest.pressKey(hdcCode) : false;
@@ -219,6 +231,82 @@ export class WsHandler {
     if (!ctx) return;
     await ctx.stop();
     this.devices.delete(sn);
+  }
+
+  // ── 脚本录制 / 回放 ──
+
+  private async handleStartRecord(sn: string, ws: WebSocket): Promise<void> {
+    try {
+      const ctx = await this.getOrCreateDevice(sn, '', '');
+      await ctx.startRecord();
+      this.safeSend(ws, { type: 'record_started', sn });
+    } catch (e) {
+      this.safeSend(ws, { type: 'error', message: errMsg(e) });
+    }
+  }
+
+  private async handleStopRecord(sn: string, ws: WebSocket): Promise<void> {
+    const ctx = this.devices.get(sn);
+    if (!ctx) {
+      this.safeSend(ws, { type: 'error', message: 'device not found' });
+      return;
+    }
+    try {
+      const actions = await ctx.stopRecord();
+      this.safeSend(ws, { type: 'record_result', sn, actions });
+    } catch (e) {
+      this.safeSend(ws, { type: 'error', message: errMsg(e) });
+    }
+  }
+
+  private async handleReplay(sn: string, msg: Record<string, unknown>, ws: WebSocket): Promise<void> {
+    const ctx = this.devices.get(sn);
+    if (!ctx) {
+      this.safeSend(ws, { type: 'error', message: 'device not found' });
+      return;
+    }
+    const actions = (Array.isArray(msg.actions) ? msg.actions : []) as RecordedAction[];
+    try {
+      const cmds = await ctx.replayActions(actions);
+      this.safeSend(ws, { type: 'replay_done', sn, count: cmds.length });
+    } catch (e) {
+      this.safeSend(ws, { type: 'error', message: errMsg(e) });
+    }
+  }
+
+  private handleStartReplay(sn: string, msg: Record<string, unknown>, ws: WebSocket): void {
+    const ctx = this.devices.get(sn);
+    if (!ctx) {
+      this.safeSend(ws, { type: 'error', message: 'device not found' });
+      return;
+    }
+    const actions = (Array.isArray(msg.actions) ? msg.actions : []) as RecordedAction[];
+    try {
+      ctx.startReplay(actions);
+      this.safeSend(ws, { type: 'replay_started', sn, count: actions.length });
+    } catch (e) {
+      this.safeSend(ws, { type: 'error', message: errMsg(e) });
+    }
+  }
+
+  private async handleStopReplay(sn: string, ws: WebSocket): Promise<void> {
+    const ctx = this.devices.get(sn);
+    if (!ctx) {
+      this.safeSend(ws, { type: 'error', message: 'device not found' });
+      return;
+    }
+    try {
+      await ctx.stopReplay();
+      this.safeSend(ws, { type: 'replay_stopped', sn });
+    } catch (e) {
+      this.safeSend(ws, { type: 'error', message: errMsg(e) });
+    }
+  }
+
+  private safeSend(ws: WebSocket, obj: Record<string, unknown>): void {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(obj));
+    }
   }
 
   private async getOrCreateDevice(

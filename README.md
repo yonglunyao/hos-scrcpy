@@ -161,6 +161,21 @@ npm run mcp
 | `launch_app` | `aa start` 启动应用 | 写操作 |
 | `run_shell` | 执行任意 hdc shell(危险) | 写操作 ⚠️ |
 | `push_file` / `pull_file` | 文件收发 | 写操作 |
+| `start_record` / `stop_record` | 系统录制 UI 操作(`uiRecord`→csv)→ 操作列表 | 写 / 只读 |
+| `export_script` | 导出操作列表为本地 JSON | 只读 |
+| `start_replay` / `stop_replay` | 可控回放(后台异步,可中断) | 写 |
+| `replay` | 同步回放操作列表(`uiInput`) | 写 |
+
+### 脚本录制与回放(MCP + 网页版)
+
+复用 HarmonyOS 系统能力(`uitest uiRecord` + `uitest uiInput`),网页版与 MCP 共用同一实现(共享 `Recorder`):
+
+- **录制**:`start_record` 启动系统 `uitest uiRecord`;`stop_record` 返回操作列表 `[{op, x, y, x2?, y2?, velocity?}]`(与系统 csv 同源)
+- **导出/导入**:`export_script` 把操作列表存为本地 JSON;`start_replay` 可从文件导入回放(JSON 或系统 csv)
+- **可控回放**:`start_replay` 后台异步执行(步间可中断)、`stop_replay` 停止;另有同步 `replay`(一次执行完)
+- **映射**:操作映射到 `uitest uiInput`(`click`/`doubleClick`/`longClick`/`fling`/`drag`)
+
+MCP 提供上述工具;网页版控制面板提供"录制操作 / 回放 / 停止回放 / 导出脚本"按钮(区别于视频录屏)。脚本可保存复用、手写编辑,跨工具兼容。
 
 > 坐标系:截图/触摸/UI 布局全程使用设备坐标,无 scale 转换。
 
