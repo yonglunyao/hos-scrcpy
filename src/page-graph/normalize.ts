@@ -27,7 +27,7 @@ export function bucketize(count: number): string {
  */
 export function normalizeSkeleton(input: FingerprintInput, wl?: Set<string>): NormalizedSkeleton {
   const listEls = input.elements.filter(
-    (e) => e.attrs.scrollable || /list|waterflow|grid/i.test(e.attrs.type ?? ''),
+    (e) => e.attrs.scrollable || /list|waterflow|grid|swiper/i.test(e.attrs.type ?? ''),
   );
   const lists: ListSummary[] = listEls.map((container) => {
     const children = input.elements.filter((e) => isInside(e, container));

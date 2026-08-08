@@ -40,7 +40,21 @@ export function extractAnchors(input: FingerprintInput, wl?: Set<string>): strin
       return /text|tab|header|title/i.test(t) && (e.center.y <= topBand || e.center.y >= bottomBand);
     })
     .map((e) => normalizeDynamic((e.texts[0] ?? '').normalize('NFC'), wl))
-    .filter(Boolean);
+    .filter(hasSemanticContent);
+}
+
+/**
+ * 状态栏噪声清洗(spike §6:顶 5% 带罩住状态栏,49% anchors 是时间/电量/网速噪声)。
+ *
+ * 这些噪声归一后是 NUM/TIME/DATE + 数字/符号占位。注意 NUM/TIME/DATE 本身是 Latin 字母
+ * 组成的占位 token,不能仅用 `\p{L}` 判断(会把 "NUM"/"TIME" 当语义词保留)。先剥离占位
+ * token 与数字/符号,再看剩余是否还含 Unicode 字母/汉字:有 → 语义词(设置/关注/超级NUM);
+ * 无 → 状态栏占位,丢弃。
+ */
+function hasSemanticContent(t: string): boolean {
+  if (!t) return false;
+  const remaining = t.replace(/NUM|TIME|DATE|[\p{N}\s:.()%/+-]/gu, '');
+  return /[\p{L}]/u.test(remaining);
 }
 
 /** anchors 集合 Jaccard 相似度。 */

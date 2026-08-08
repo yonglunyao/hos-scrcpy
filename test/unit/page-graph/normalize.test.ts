@@ -86,6 +86,21 @@ describe('normalizeSkeleton 补充', () => {
     const b = normalizeSkeleton({ elements: [el('点赞 1,024', 'Text')] });
     expect(JSON.stringify(a.nodes)).toBe(JSON.stringify(b.nodes));
   });
+
+  it('规则①:Swiper 轮播容器识别(子项剥离入 lists,不进 nodes)', () => {
+    // spike §4:Swiper(轮播)未被 /list|waterflow|grid/ 覆盖,子项错误进入 nodes。
+    // 容器与子项同 bounds(等边界即视为包含,见 isInside)。
+    const swiper: FingerprintInput['elements'][number] = {
+      ref: '@e0#s1', bounds: [0, 0, 100, 100], center: { x: 50, y: 50 },
+      texts: ['轮播'], attrs: { clickable: false, scrollable: false, type: 'Swiper' },
+    };
+    const child = el('图片A', 'Text');   // bounds [0,0,100,100] 落在 swiper 内
+    const skeleton = normalizeSkeleton({ elements: [swiper, child] });
+    // Swiper 当容器 → 子项进 lists.itemSigs(被裁剪),不进 nodes
+    expect(skeleton.lists).toHaveLength(1);
+    expect(skeleton.lists[0].type).toBe('Swiper');
+    expect(skeleton.nodes.map((n) => n.text)).not.toContain('图片A');
+  });
 });
 
 describe('规则② 动态归一增强', () => {

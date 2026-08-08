@@ -17,6 +17,25 @@ describe('extractAnchors', () => {
     expect(anchors).toContain('我的');   // 底部
     expect(anchors).not.toContain('内容'); // 中部不计
   });
+
+  it('过滤状态栏噪声(归一后 NUM/TIME/符号占位被丢弃),保留语义词', () => {
+    // 顶部 5% 带罩住状态栏:时间/电量/网速归一后是 NUM/TIME/NUM:NUM 等无语义占位;
+    // 标题栏"设置"是有语义词,必须保留。见 spike §6(49% anchors 是状态栏噪声)。
+    const input: FingerprintInput = {
+      elements: [
+        el('设置', 0, 'Text'),     // 语义词(CJK)→ 保留
+        el('10:24', 0, 'Text'),    // 时间 → 归一 TIME → 无语义 → 滤
+        el('100', 0, 'Text'),      // 纯数字 → NUM → 滤
+        el(':', 0, 'Text'),        // 纯符号 → 滤
+      ],
+      screenSize: { w: 400, h: 800 },
+    };
+    const anchors = extractAnchors(input);
+    expect(anchors).toContain('设置');
+    expect(anchors).not.toContain('NUM');
+    expect(anchors).not.toContain('TIME');
+    expect(anchors).not.toContain(':');
+  });
 });
 
 describe('matchAnchors (Jaccard)', () => {
