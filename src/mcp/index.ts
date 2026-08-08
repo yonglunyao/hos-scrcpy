@@ -1,0 +1,384 @@
+/**
+ * hos-scrcpy MCP server — 把 HarmonyOS 设备控制能力暴露为 LLM agent 工具。
+ *
+ * 设计:
+ *  - 不引入视频流;agent 基于截图(uitest screenCap)决策。
+ *  - 全程设备坐标系(不碰 WebSocket 路径的 scale 缩放)。
+ *  - 与 Web 投屏路径同源:触摸/按键复用 UitestServer(socket),
+ *    不另起炉灶;仅布局因 socket getLayout 在部分 agent 版本无响应,改用 uitest dumpLayout。
+ *  - 单活动设备会话,见 ./session。
+ *
+ * 工具描述(description)为中文、面向 agent:说明用途、前置条件、坐标来源、与其他工具的衔接。
+ *
+ * 用法(编程式):
+ *   import { createMcpServer } from 'hos-scrcpy';
+ *   const server = createMcpServer();
+ *   await server.connect(new StdioServerTransport());
+ */
+
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { z } from 'zod';
+import { getHdcKeyCode } from '../input/keycode';
+import { UINPUT_TOUCH_TIMEOUT_SEC } from '../constants';
+import {
+  captureScreenshot,
+  connectSession,
+  disconnectSession,
+  dumpLayoutRaw,
+  flattenLayout,
+  getSession,
+  listDevices,
+  requireSession,
+  sleep,
+} from './session';
+
+const READ_ONLY = { readOnlyHint: true } as const;
+const DESTRUCTIVE = { destructiveHint: true } as const;
+
+const text = (t: string) => ({ content: [{ type: 'text' as const, text: t }] });
+
+const SWIPE_STEP_MS = 16;
+
+export function createMcpServer(): McpServer {
+  const server = new McpServer({ name: 'hos-scrcpy-mcp', version: '1.0.0' });
+
+  // ── 设备发现与会话 ──
+
+  server.registerTool(
+    'list_devices',
+    {
+      description:
+        '列出 hdc 已连接的 HarmonyOS 设备序列号(sn)。无设备时返回空数组。' +
+        '通常是自动化流程的第一步——用返回的 sn 调用 connect_device 建立会话。',
+      inputSchema: {},
+      annotations: READ_ONLY,
+    },
+    async () => {
+      const devices = await listDevices();
+      return text(JSON.stringify({ count: devices.length, devices }, null, 2));
+    },
+  );
+
+  server.registerTool(
+    'connect_device',
+    {
+      description:
+        '连接指定设备并启动控制会话(启动 uitest daemon + 建立 socket)。' +
+        '在使用截图/布局/触摸/按键等任何控制工具之前必须调用一次。' +
+        '幂等:已连接时自动断开重连。sn 取自 list_devices。',
+      inputSchema: { sn: z.string().describe('设备序列号(来自 list_devices)') },
+      annotations: DESTRUCTIVE,
+    },
+    async ({ sn }) => {
+      await connectSession(sn);
+      return text(`已连接设备 ${sn},现在可以使用截图/控制工具。`);
+    },
+  );
+
+  server.registerTool(
+    'disconnect_device',
+    {
+      description:
+        '断开当前设备,释放 uitest 会话与端口转发。任务结束后调用;' +
+        '断开后需重新 connect_device 才能继续控制。无活动会话时安全返回。',
+      inputSchema: {},
+      annotations: DESTRUCTIVE,
+    },
+    async () => {
+      const sn = getSession()?.sn;
+      await disconnectSession();
+      return text(sn ? `已断开设备 ${sn}。` : '没有活动会话可断开。');
+    },
+  );
+
+  // ── 信息 / 只读 ──
+
+  server.registerTool(
+    'device_info',
+    {
+      description:
+        '查询当前设备:在线状态、屏幕分辨率(width x height,设备坐标系)、uitest 版本、是否云设备。' +
+        '用于换算坐标前确认屏幕尺寸,或在操作前确认设备就绪。',
+      inputSchema: {},
+      annotations: READ_ONLY,
+    },
+    async () => {
+      const { device } = requireSession();
+      const [online, screenSize, uitestVersion, isCloud] = await Promise.all([
+        device.isOnline(),
+        device.getScreenSize().catch(() => ({ width: 0, height: 0 })),
+        device.getUitestVersion().catch(() => 'unknown'),
+        device.isCloudDevice().catch(() => false),
+      ]);
+      return text(
+        JSON.stringify(
+          { sn: device.getSn(), online, screenSize, uitestVersion, isCloudDevice: isCloud },
+          null,
+          2,
+        ),
+      );
+    },
+  );
+
+  server.registerTool(
+    'take_screenshot',
+    {
+      description:
+        '截取当前屏幕,返回全分辨率 PNG 图像(设备坐标,不缩放)。' +
+        '适合用视觉判断界面状态、定位元素。若要拿到可点击元素的精确坐标,用 dump_ui 更直接。',
+      inputSchema: {},
+      annotations: READ_ONLY,
+    },
+    async () => {
+      const shot = await captureScreenshot();
+      return {
+        content: [{ type: 'image' as const, data: shot.base64, mimeType: shot.mimeType }],
+      };
+    },
+  );
+
+  server.registerTool(
+    'dump_ui',
+    {
+      description:
+        '转储当前界面的 UI 布局树,返回元素列表。每个元素含 bounds=[left,top,right,bottom] 与 center 中心点(均为设备坐标),' +
+        'center 可直接作为 tap/swipe/input_text 的坐标。仅保留有 text/id 或可点击(clickable=true)的元素以过滤海量容器节点——' +
+        '点击时优先选 clickable=true 的元素。解析为空时会附带原始布局 JSON 前部供排查。',
+      inputSchema: {},
+      annotations: READ_ONLY,
+    },
+    async () => {
+      const raw = await dumpLayoutRaw();
+      const elements = flattenLayout(raw);
+      if (elements.length === 0) {
+        return text(`未解析出元素。原始布局(前部):\n${raw.slice(0, 2000)}`);
+      }
+      return text(JSON.stringify({ count: elements.length, elements }, null, 2));
+    },
+  );
+
+  // ── 触摸 / 手势(复用 UitestServer socket,与 Web 同源) ──
+
+  server.registerTool(
+    'tap',
+    {
+      description:
+        '在设备坐标 (x, y) 点击屏幕。坐标为设备像素(非视频缩放坐标),' +
+        '取自 dump_ui 元素的 center 或由截图估算。需先 connect_device。',
+      inputSchema: {
+        x: z.number().int().describe('设备 X 坐标'),
+        y: z.number().int().describe('设备 Y 坐标'),
+      },
+      annotations: DESTRUCTIVE,
+    },
+    async ({ x, y }) => {
+      const { uitest } = requireSession();
+      await uitest.touchDown(x, y);
+      await uitest.touchUp(x, y);
+      return text(`已点击 (${x}, ${y})。`);
+    },
+  );
+
+  server.registerTool(
+    'long_press',
+    {
+      description:
+        '在 (x, y) 长按 duration_ms 毫秒,用于触发长按菜单、拖拽预备等。坐标含义同 tap。',
+      inputSchema: {
+        x: z.number().int(),
+        y: z.number().int(),
+        duration_ms: z.number().int().min(50).max(10000).default(800).describe('长按时长(毫秒)'),
+      },
+      annotations: DESTRUCTIVE,
+    },
+    async ({ x, y, duration_ms }) => {
+      const { uitest } = requireSession();
+      await uitest.touchDown(x, y);
+      await sleep(duration_ms);
+      await uitest.touchUp(x, y);
+      return text(`已在 (${x}, ${y}) 长按 ${duration_ms}ms。`);
+    },
+  );
+
+  server.registerTool(
+    'swipe',
+    {
+      description:
+        '从 (x1, y1) 滑动到 (x2, y2),耗时 duration_ms 毫秒。用于滚动列表、翻页、滑动解锁、手势导航等。' +
+        '方向参考:左滑 x1>x2、右滑 x1<x2、上滑 y1>y2、下滑 y1<y2。坐标为设备像素。',
+      inputSchema: {
+        x1: z.number().int(),
+        y1: z.number().int(),
+        x2: z.number().int(),
+        y2: z.number().int(),
+        duration_ms: z.number().int().min(50).max(10000).default(400).describe('滑动时长(毫秒)'),
+      },
+      annotations: DESTRUCTIVE,
+    },
+    async ({ x1, y1, x2, y2, duration_ms }) => {
+      const { uitest } = requireSession();
+      const steps = Math.max(2, Math.round(duration_ms / SWIPE_STEP_MS));
+      await uitest.touchDown(x1, y1);
+      for (let i = 1; i < steps; i++) {
+        const t = i / steps;
+        await uitest.touchMove(Math.round(x1 + (x2 - x1) * t), Math.round(y1 + (y2 - y1) * t));
+        await sleep(duration_ms / steps);
+      }
+      await uitest.touchUp(x2, y2);
+      return text(`已从 (${x1},${y1}) 滑动到 (${x2},${y2}),耗时 ${duration_ms}ms。`);
+    },
+  );
+
+  // ── 文本 / 按键 ──
+
+  server.registerTool(
+    'input_text',
+    {
+      description:
+        '先点击 (x, y) 聚焦输入框,再输入文本 text。坐标必须提供(用 dump_ui 找到对应输入元素的 center)。' +
+        '用于在搜索框/登录框等输入内容。注意:text 内不要包含双引号。',
+      inputSchema: {
+        text: z.string().describe('要输入的文本(不含双引号)'),
+        x: z.number().int().describe('输入框 X 坐标'),
+        y: z.number().int().describe('输入框 Y 坐标'),
+      },
+      annotations: DESTRUCTIVE,
+    },
+    async ({ text: content, x, y }) => {
+      const { uitest } = requireSession();
+      await uitest.touchDown(x, y);
+      await uitest.touchUp(x, y);
+      await sleep(200);
+      await uitest.inputText(x, y, content);
+      return text(`已在 (${x}, ${y}) 输入 ${content.length} 个字符。`);
+    },
+  );
+
+  server.registerTool(
+    'press_key',
+    {
+      description:
+        '按硬件键。key 为键名,常用:HOME、BACK、VOLUME_UP、VOLUME_DOWN、POWER、ENTER、ESCAPE、MENU、TAB、SPACE,' +
+        '以及数字 0-9、字母 A-Z 等(完整见 KEY_CODE_MAP)。HOME/BACK 走 uitest,其余走 uinput。未知键名会报错。',
+      inputSchema: { key: z.string().describe('键名,如 HOME / BACK / VOLUME_UP') },
+      annotations: DESTRUCTIVE,
+    },
+    async ({ key }) => {
+      const { uitest, device } = requireSession();
+      const code = getHdcKeyCode(key);
+      if (code === null) {
+        throw new Error(`未知按键: ${key}。可用 HOME、BACK、VOLUME_UP、VOLUME_DOWN、POWER、ENTER、ESCAPE 等。`);
+      }
+      const handled = await uitest.pressKey(code);
+      if (!handled) {
+        await device.shell(`uinput -K -d ${code} -u ${code}`, UINPUT_TOUCH_TIMEOUT_SEC);
+      }
+      return text(`已按 ${key}(码 ${code},经 ${handled ? 'uitest' : 'uinput'})。`);
+    },
+  );
+
+  server.registerTool(
+    'home',
+    { description: '按 HOME 键回到桌面。等价 press_key("HOME")。', inputSchema: {}, annotations: DESTRUCTIVE },
+    async () => {
+      const { uitest } = requireSession();
+      await uitest.pressKey(3);
+      return text('已按 HOME。');
+    },
+  );
+
+  server.registerTool(
+    'back',
+    { description: '按 BACK 键返回上一级。等价 press_key("BACK")。', inputSchema: {}, annotations: DESTRUCTIVE },
+    async () => {
+      const { uitest } = requireSession();
+      await uitest.pressKey(4);
+      return text('已按 BACK。');
+    },
+  );
+
+  // ── 应用 / 系统 ──
+
+  server.registerTool(
+    'launch_app',
+    {
+      description:
+        '用 aa start 启动应用。bundle=包名(如 com.example.app),ability=Ability 名(默认 EntryAbility,多数应用适用)。' +
+        '用于拉起指定应用;若不知 ability 名,用默认值即可。',
+      inputSchema: {
+        bundle: z.string().describe('应用包名,如 com.example.app'),
+        ability: z.string().default('EntryAbility').describe('Ability 名(默认 EntryAbility)'),
+      },
+      annotations: DESTRUCTIVE,
+    },
+    async ({ bundle, ability }) => {
+      const { device } = requireSession();
+      await device.shell(`aa start -a ${ability} -b ${bundle}`);
+      return text(`已启动 ${bundle}/${ability}。`);
+    },
+  );
+
+  server.registerTool(
+    'run_shell',
+    {
+      description:
+        '在设备上执行任意 hdc shell 命令,返回 stdout/stderr 合并。功能强大但有风险,' +
+        '仅用于抓日志、查进程、改系统设置等截图/布局/触摸工具做不到的场景。' +
+        '不要用它替代 tap/swipe 等专用工具(后者更快更可靠)。可选 timeout_sec 限定超时(1-120 秒)。',
+      inputSchema: {
+        command: z.string().describe('要在设备执行的 shell 命令'),
+        timeout_sec: z.number().int().min(1).max(120).optional().describe('超时(秒)'),
+      },
+      annotations: DESTRUCTIVE,
+    },
+    async ({ command, timeout_sec }) => {
+      const { device } = requireSession();
+      const output = await device.shell(command, timeout_sec);
+      return text(output || '(无输出)');
+    },
+  );
+
+  server.registerTool(
+    'push_file',
+    {
+      description: '推送本地文件到设备(hdc file send)。local_path=宿主机路径,remote_path=设备路径。用于传脚本/配置/安装包等。',
+      inputSchema: {
+        local_path: z.string().describe('宿主机本地文件路径'),
+        remote_path: z.string().describe('设备目标路径'),
+      },
+      annotations: DESTRUCTIVE,
+    },
+    async ({ local_path, remote_path }) => {
+      const { device } = requireSession();
+      await device.getHdc().pushFile(local_path, remote_path);
+      return text(`已推送 ${local_path} -> ${remote_path}。`);
+    },
+  );
+
+  server.registerTool(
+    'pull_file',
+    {
+      description: '从设备拉取文件到本地(hdc file recv)。remote_path=设备路径,local_path=宿主机保存路径。用于取日志/截图/应用数据等。',
+      inputSchema: {
+        remote_path: z.string().describe('设备源文件路径'),
+        local_path: z.string().describe('宿主机保存路径'),
+      },
+      annotations: DESTRUCTIVE,
+    },
+    async ({ remote_path, local_path }) => {
+      const { device } = requireSession();
+      await device.getHdc().pullFile(remote_path, local_path);
+      return text(`已拉取 ${remote_path} -> ${local_path}。`);
+    },
+  );
+
+  return server;
+}
+
+/** 启动 stdio MCP server(进程级入口使用)。 */
+export async function runMcpServer(): Promise<void> {
+  const server = createMcpServer();
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+}

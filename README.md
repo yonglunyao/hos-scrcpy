@@ -125,6 +125,69 @@ Options:
   --templates <dir>    Web UI 模板目录
 ```
 
+## MCP Server
+
+hos-scrcpy 内置一个 MCP(Model Context Protocol)server,把 HarmonyOS 设备控制能力暴露为 LLM agent 工具,可用于 UI 自动化、动态分析、自动点击等场景(类比手机版 computer-use)。
+
+### 运行
+
+```bash
+# 需先 build
+npm run build
+
+# 启动 MCP server(stdio 传输)
+npm run mcp
+# 或:hos-scrcpy-mcp
+```
+
+环境变量 `HDC_PATH` 指定 hdc 路径(默认 `hdc`)。
+
+### 工具一览
+
+| 工具 | 说明 | 注解 |
+|------|------|------|
+| `list_devices` | 列出已连接设备序列号 | 只读 |
+| `connect_device` | 连接设备并启动 uitest 输入会话(控制前必调) | — |
+| `disconnect_device` | 断开设备,释放资源 | — |
+| `device_info` | 查询在线状态/分辨率/uitest 版本/云设备 | 只读 |
+| `take_screenshot` | 截屏,返回全分辨率图像(设备坐标) | 只读 |
+| `dump_ui` | 转储 UI 布局树,返回元素 bounds 与中心坐标 | 只读 |
+| `tap` | 点击坐标 | 写操作 |
+| `long_press` | 长按 | 写操作 |
+| `swipe` | 滑动 | 写操作 |
+| `input_text` | 点击聚焦后输入文本 | 写操作 |
+| `press_key` | 按键(HOME/BACK 走 uitest,其余走 uinput) | 写操作 |
+| `home` / `back` | HOME / BACK 便捷封装 | 写操作 |
+| `launch_app` | `aa start` 启动应用 | 写操作 |
+| `run_shell` | 执行任意 hdc shell(危险) | 写操作 ⚠️ |
+| `push_file` / `pull_file` | 文件收发 | 写操作 |
+
+> 坐标系:截图/触摸/UI 布局全程使用设备坐标,无 scale 转换。
+
+### 编程式使用
+
+```typescript
+import { createMcpServer } from 'hos-scrcpy';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+
+const server = createMcpServer();
+await server.connect(new StdioServerTransport());
+```
+
+### 接入 Claude Code
+
+在 `~/.claude.json` 的 `mcpServers` 中添加:
+
+```json
+"hos-scrcpy": {
+  "command": "node",
+  "args": ["<path-to>/hos-scrcpy/dist/bin/mcp.js"],
+  "env": { "HDC_PATH": "hdc" }
+}
+```
+
+或发布后用 `npx hos-scrcpy-mcp`。
+
 ## 架构
 
 ```

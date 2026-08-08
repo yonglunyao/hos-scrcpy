@@ -25,3 +25,6 @@ export type { IHdcClient, IDeviceManager, IUitestServer } from './device/interfa
 
 // Re-export logger
 export { logger, createChildLogger } from './shared/logger';
+
+// MCP server
+export { createMcpServer, runMcpServer } from './mcp';

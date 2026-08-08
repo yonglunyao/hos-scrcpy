@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0] - 2026-08-08
+
+### 新增功能 (Added)
+
+#### MCP Server
+- 新增 `hos-scrcpy-mcp` 入口(stdio 传输),把 HarmonyOS 设备控制能力暴露为 LLM agent 工具,可用于 UI 自动化、动态分析等场景
+- 提供 17 个工具:设备发现/连接、截图、UI 布局、触摸/滑动/长按/输入/按键、shell、文件收发
+- 输入/按键复用 `UitestServer` socket(与 Web 投屏路径同源);截图/布局走 `uitest` 命令行(`screenCap`/`dumpLayout`)
+- 入口最先重定向 console 到 stderr,保证 stdio 通道纯净
+
+### 修复 (Fixed)
+
+#### UitestServer socket 连续请求挂起
+- `sendRequest` 原用 `once('data')`,假设一个 data 事件等同一条完整响应;TCP 分包/合包会导致响应错位,连续操作(如 swipe 多步)后请求永久等不到响应而挂起
+- 改为按响应的 `\n` 分隔符累积切分(per-socket buffer),正确处理分包/合包,同时惠及 Web 投屏路径的输入
+
 ## [1.2.0] - 2026-04-06
 
 ### 新增功能 (Added)
