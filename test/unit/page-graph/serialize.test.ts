@@ -23,7 +23,7 @@ describe('serializeCanonical', () => {
 
   it('以版本前缀开头', () => {
     const sk: NormalizedSkeleton = { nodes: [], lists: [] };
-    expect(serializeCanonical(sk).startsWith('v1:')).toBe(true);
+    expect(serializeCanonical(sk).startsWith('v2:')).toBe(true);
   });
 
   it('不同骨架产出不同串', () => {

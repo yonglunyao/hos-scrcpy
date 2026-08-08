@@ -78,7 +78,7 @@ describe('computeFingerprint', () => {
     const a = computeFingerprint(input);
     const b = computeFingerprint(input);
     expect(a.skeletonHash).toBe(b.skeletonHash);
-    expect(a.version).toBe('v1');
+    expect(a.version).toBe('v2');
     expect(Array.isArray(a.anchors)).toBe(true);
   });
 

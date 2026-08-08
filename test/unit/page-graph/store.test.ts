@@ -6,10 +6,10 @@ import { MapStore, diffGraphs } from '../../../src/page-graph/store';
 import type { PageGraph, PageNode } from '../../../src/page-graph/types';
 
 function emptyGraph(appBundle: string, appVersion: string): PageGraph {
-  return { appBundle, appVersion, fingerprintVersion: 'v1', nodes: new Map(), edges: [], entryPoints: [] };
+  return { appBundle, appVersion, fingerprintVersion: 'v2', nodes: new Map(), edges: [], entryPoints: [] };
 }
 function node(id: string): PageNode {
-  return { id, fingerprint: { version: 'v1', skeletonHash: id, anchors: [] }, skeletonArchive: { nodes: [], lists: [] }, frontierExplored: [], frontierPending: [], visitedAt: 0 };
+  return { id, fingerprint: { version: 'v2', skeletonHash: id, anchors: [] }, skeletonArchive: { nodes: [], lists: [] }, frontierExplored: [], frontierPending: [], visitedAt: 0 };
 }
 
 describe('MapStore', () => {
@@ -59,7 +59,7 @@ describe('MapStore', () => {
     const file = join(dir, 'com.test-1.0.json');
     // 写一个 fingerprintVersion 合法但 nodes 缺失的损坏文件
     const { writeFileSync } = require('fs');
-    writeFileSync(file, JSON.stringify({ appBundle: 'com.test', appVersion: '1.0', fingerprintVersion: 'v1', edges: [], entryPoints: [] }));
+    writeFileSync(file, JSON.stringify({ appBundle: 'com.test', appVersion: '1.0', fingerprintVersion: 'v2', edges: [], entryPoints: [] }));
     expect(() => store.load('com.test', '1.0')).toThrow(/结构损坏|nodes/);
   });
 
@@ -75,12 +75,12 @@ describe('MapStore', () => {
 
 // --- diffGraphs: skeletonHash 精确 + anchors 二次匹配 ---
 function graphWith(appBundle: string, ...nodes: PageNode[]): PageGraph {
-  const g: PageGraph = { appBundle, appVersion: '1.0', fingerprintVersion: 'v1', nodes: new Map(), edges: [], entryPoints: [] };
+  const g: PageGraph = { appBundle, appVersion: '1.0', fingerprintVersion: 'v2', nodes: new Map(), edges: [], entryPoints: [] };
   for (const n of nodes) g.nodes.set(n.id, n);
   return g;
 }
 function fpNode(id: string, skeletonHash: string, anchors: string[]): PageNode {
-  return { id, fingerprint: { version: 'v1', skeletonHash, anchors }, skeletonArchive: { nodes: [], lists: [] }, frontierExplored: [], frontierPending: [], visitedAt: 0 };
+  return { id, fingerprint: { version: 'v2', skeletonHash, anchors }, skeletonArchive: { nodes: [], lists: [] }, frontierExplored: [], frontierPending: [], visitedAt: 0 };
 }
 
 describe('diffGraphs', () => {

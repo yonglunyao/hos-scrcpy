@@ -1,7 +1,7 @@
 import type { Element, Locator } from '../screen-model';
 
 /** 指纹算法版本;规范化规则变更必升版本,旧图不静默碰撞。 */
-export const FINGERPRINT_VERSION = 'v1';
+export const FINGERPRINT_VERSION = 'v2';
 
 export type OpType =
   | 'navigate' | 'toggle' | 'noop'

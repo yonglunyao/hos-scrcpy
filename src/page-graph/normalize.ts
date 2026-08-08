@@ -71,6 +71,7 @@ export function normalizeDynamic(t: string, wl?: Set<string>): string {
   if (wl?.has(t)) return t;                  // 规则② 时序白名单:跨 dump 不变 → 保留
   if (STATIC_CONTEXT.test(t)) return t;      // 规则② 静态上下文白名单
   return t
+    .replace(/\d*\.?\d*\s*[KMGT]?i?[Bb]?\/s/g, 'SPEED')   // 网速 B/s/K/s/KB/s/MB/s(状态栏动态噪声)
     .replace(/\d{4}-\d{1,2}-\d{1,2}/g, 'DATE')   // 月/日 1-2 位(放宽非零填充)
     .replace(/\d{1,2}:\d{2}/g, 'TIME')
     .replace(/\d[\d,]*(?:\.\d+)?/g, 'NUM');      // 任意长度数字(含千分位/小数)→ 单个 NUM
