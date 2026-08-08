@@ -14,12 +14,11 @@ export function renderModel(model: ScreenModel): string {
   });
   model.elements.forEach((e, i) => {
     const indent = childOf[i] !== undefined ? '  ' : '';
-    const shortRef = e.ref.split('#', 2)[0]; // @eN#sN → @eN(代际省略,agent 用短 ref)
     const role = e.attrs.type ?? '?';
     const main = e.texts[0] ?? (e.hint ? `(${e.hint})` : '');
     const rest = e.texts.slice(1).join(' / ');
     const tail = rest ? ` → ${rest}` : '';
-    lines.push(`${indent}${shortRef} [${role}] ${main}${tail}`);
+    lines.push(`${indent}${e.ref} [${role}] ${main}${tail}`);
   });
   return lines.join('\n');
 }

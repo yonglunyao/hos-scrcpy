@@ -6,9 +6,9 @@ const mk = (over: Partial<Element>): Element => ({ ref: '@e0#s1', bounds: [0,0,1
 const model = (els: Element[]): ScreenModel => ({ generation: 1, ts: 0, elements: els });
 
 describe('renderModel', () => {
-  it('渲染 @eN [type] text', () => {
+  it('渲染 @eN#sN [type] text', () => {
     const out = renderModel(model([mk({ ref: '@e1#s1', attrs: { type: 'Row', clickable: true }, texts: ['WLAN', '已连接'] })]));
-    expect(out).toContain('@e1 [Row] WLAN');
+    expect(out).toContain('@e1#s1 [Row] WLAN');
     expect(out).toContain('已连接');
   });
   it('scrollable 容器浅缩进子元素', () => {
@@ -16,7 +16,7 @@ describe('renderModel', () => {
       mk({ ref: '@e1#s1', attrs: { type: 'List', scrollable: true }, texts: [], bounds: [0,0,100,100] }),
       mk({ ref: '@e2#s1', attrs: { type: 'Row', clickable: true }, texts: ['蓝牙'], bounds: [0,0,100,20] }),
     ]));
-    expect(out).toMatch(/@e1.*\n\s+@e2/);
+    expect(out).toMatch(/@e1#s1.*\n\s+@e2#s1/);
   });
   it('省略 bounds', () => {
     const out = renderModel(model([mk({ ref: '@e1#s1', bounds: [10,20,30,40], texts: ['x'] })]));
