@@ -1,5 +1,5 @@
 import type { ScreenModel, Element, Locator } from '../screen-model';
-import { classifySafety, type SafetyVerdict } from './safety-filter';
+import type { SafetyVerdict } from './safety-filter';
 
 export interface FrontierCandidate {
   locator: Locator;
