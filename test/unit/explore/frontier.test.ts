@@ -14,7 +14,7 @@ describe('frontier', () => {
     expect(locatorSignature({ text: '设置' })).not.toBe(locatorSignature({ text: '关于' }));
   });
 
-  it('提取可点候选:白名单放行 / 黑名单危险跳过(记 dangerous)/ 默认拒不计入', () => {
+  it('提取可点候选(全放行:所有可点控件入选,dangerous=0)', () => {
     const m = sm([
       el('设置', 'Text', [0,0,1080,100]),
       el('恢复出厂', 'Button', [0,100,540,200]),
@@ -22,9 +22,9 @@ describe('frontier', () => {
       el('', 'Image', [0,300,540,400]),
     ]);
     const r = extractFrontier(m, { exploredSignatures: new Set(), safety: classifySafety, sampleLimit: 10 });
-    expect(r.selected.length).toBe(2);
-    expect(r.dangerous).toBe(1);
-    expect(r.totalCandidates).toBe(2);
+    expect(r.selected.length).toBe(4);   // 全放行:4 个可点控件全入选
+    expect(r.dangerous).toBe(0);         // 无黑名单
+    expect(r.totalCandidates).toBe(4);
   });
 
   it('已 explored 的 signature 跳过', () => {

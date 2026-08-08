@@ -58,9 +58,9 @@ export function extractFrontier(
   };
 }
 
-function scorePriority(e: Element, v: SafetyVerdict): number {
+function scorePriority(e: Element, _v: SafetyVerdict): number {
   let p = 0;
-  if (v.reason === 'whitelist-navigate') p += 100;
+  if (/^tab$|navigation|navigator|menu|tabbar|bottombar/i.test(e.attrs.type ?? '')) p += 100;
   if (NAV_PRIORITY_TEXT.test(e.texts.join(' '))) p += 50;
   return p;
 }
