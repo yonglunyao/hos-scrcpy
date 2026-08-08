@@ -143,98 +143,10 @@ function readBase64(filePath: string): string {
   return fs.readFileSync(filePath).toString('base64');
 }
 
-// ── UI 布局 ──
+// ── UI 布局(实现下沉 src/layout/,这里重导出保持向后兼容) ──
 
-const LAYOUT_REMOTE = '/data/local/tmp/mcp_layout.json';
-
-/** 通过命令行 uitest dumpLayout 获取布局 JSON 并拉取到本地。 */
-export async function dumpLayoutRaw(): Promise<string> {
-  const { device } = requireSession();
-  await device.shell(`uitest dumpLayout -p ${LAYOUT_REMOTE}`, SCREENSHOT_TIMEOUT_SEC);
-  const local = path.join(os.tmpdir(), `hos-scrcpy-layout-${Date.now()}.json`);
-  await device.getHdc().pullFile(LAYOUT_REMOTE, local);
-  return fs.readFileSync(local, 'utf-8');
-}
-
-export interface UiElement {
-  text?: string;
-  id?: string;
-  type?: string;
-  clickable?: boolean;
-  bounds: number[]; // [left, top, right, bottom]
-  center: { x: number; y: number };
-}
-
-/** 解析 HarmonyOS 布局的 bounds 字符串 "[left,top][right,bottom]" */
-function parseBoundsStr(s: string): number[] | undefined {
-  const m = s.match(/\[(\d+),(\d+)\]\[(\d+),(\d+)\]/);
-  if (!m) return undefined;
-  return [parseInt(m[1]!, 10), parseInt(m[2]!, 10), parseInt(m[3]!, 10), parseInt(m[4]!, 10)];
-}
-
-function strAttr(attrs: Record<string, unknown>, keys: string[]): string | undefined {
-  for (const k of keys) {
-    const v = attrs[k];
-    if (typeof v === 'string' && v.trim() !== '') return v;
-  }
-  return undefined;
-}
-
-/**
- * 扁平化 HarmonyOS uitest dumpLayout 的 JSON 树。
- * 真实结构:{ attributes: { bounds:"[l,t][r,b]", text, id, key, type, clickable, ... }, children: [...] }
- * 只收集有 text/id 或可点击的节点(过滤海量空容器),提取中心坐标供点击定位。
- * 解析失败返回空数组。
- */
-export function flattenLayout(layoutStr: string): UiElement[] {
-  let root: unknown;
-  try {
-    root = JSON.parse(layoutStr);
-  } catch {
-    return [];
-  }
-
-  const elements: UiElement[] = [];
-
-  const visit = (node: unknown): void => {
-    if (!node || typeof node !== 'object') return;
-    const obj = node as Record<string, unknown>;
-
-    const attrs = obj.attributes && typeof obj.attributes === 'object'
-      ? (obj.attributes as Record<string, unknown>)
-      : undefined;
-    if (attrs) {
-      const bounds = typeof attrs.bounds === 'string' ? parseBoundsStr(attrs.bounds) : undefined;
-      if (bounds) {
-        const text = strAttr(attrs, ['text', 'originalText', 'description']);
-        const id = strAttr(attrs, ['id', 'key']);
-        const type = strAttr(attrs, ['type']);
-        const clickable = attrs.clickable === 'true';
-        if (text || id || clickable) {
-          const el: UiElement = {
-            bounds,
-            center: {
-              x: Math.round((bounds[0]! + bounds[2]!) / 2),
-              y: Math.round((bounds[1]! + bounds[3]!) / 2),
-            },
-          };
-          if (text) el.text = text;
-          if (id) el.id = id;
-          if (type) el.type = type;
-          if (clickable) el.clickable = true;
-          elements.push(el);
-        }
-      }
-    }
-
-    if (Array.isArray(obj.children)) {
-      obj.children.forEach(visit);
-    }
-  };
-
-  visit(root);
-  return elements;
-}
+export { flattenLayout, dumpLayoutRaw } from '../layout';
+export type { UiElement } from '../layout';
 
 // ── 脚本录制 / 回放(薄封装共享 Recorder,MCP 与 Web 复用同一实现) ──
 

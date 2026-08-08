@@ -165,7 +165,7 @@ export function createMcpServer(): McpServer {
       annotations: READ_ONLY,
     },
     async () => {
-      const raw = await dumpLayoutRaw();
+      const raw = await dumpLayoutRaw(requireSession().device);
       const elements = flattenLayout(raw);
       if (elements.length === 0) {
         return text(`未解析出元素。原始布局(前部):\n${raw.slice(0, 2000)}`);
