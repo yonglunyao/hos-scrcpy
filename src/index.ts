@@ -29,12 +29,13 @@ export { logger, createChildLogger } from './shared/logger';
 // MCP server
 export { createMcpServer, runMcpServer } from './mcp';
 
-// Screen model
+// Screen model(UI 解析基础设施,供上层 agent 依赖)
 export type { Element, ScreenModel, Locator } from './screen-model';
 export { buildScreenModel, renderModel, resolveLocator, associateText } from './screen-model';
 
-// Page graph(SLAM 页面图)
-export * from './page-graph';
+// Device primitives(设备原语契约 + 生产实现,供上层 agent 依赖注入)
+export type { DevicePrimitives } from './mcp/device-primitives';
+export { createMcpDevice } from './mcp/mcp-device';
 
-// Explore(SLAM 探索器:ActExecutor/Explorer/DaemonWatchdog/SafetyFilter)
-export * from './explore';
+// MCP session API(程序化设备会话:列设备/连接/断开/sleep,供上层 agent/spike 使用)
+export { connectSession, disconnectSession, listDevices, sleep } from './mcp/session';

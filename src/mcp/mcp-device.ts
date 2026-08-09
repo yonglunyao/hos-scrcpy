@@ -1,8 +1,8 @@
-import type { DevicePrimitives } from './types';
+import type { DevicePrimitives } from './device-primitives';
 import {
   requireSession, connectSession, disconnectSession,
   captureScreenModel, actByRef,
-} from '../mcp/session';
+} from './session';
 
 /** 生产 DevicePrimitives:包装 MVP session.ts。recover 重连后所有方法取新 session。 */
 export async function createMcpDevice(): Promise<DevicePrimitives> {
