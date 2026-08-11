@@ -1,7 +1,7 @@
 import type { DevicePrimitives } from './device-primitives';
 import {
   requireSession, connectSession, disconnectSession,
-  captureScreenModel, actByRef,
+  captureScreenModel, actByRef, captureScreenshot,
 } from './session';
 
 /** 生产 DevicePrimitives:包装 MVP session.ts。recover 重连后所有方法取新 session。 */
@@ -26,5 +26,6 @@ export async function createMcpDevice(): Promise<DevicePrimitives> {
     forceStop: async (bundle) => { await requireSession().device.shell(`aa force-stop ${bundle}`); },
     shell: (cmd, timeoutSec) => requireSession().device.shell(cmd, timeoutSec),
     recover: async () => { await disconnectSession(); await connectSession(sn); },
+    screenshot: async () => Buffer.from((await captureScreenshot()).base64, 'base64'),
   };
 }

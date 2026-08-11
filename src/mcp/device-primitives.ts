@@ -19,4 +19,6 @@ export interface DevicePrimitives {
   shell(cmd: string, timeoutSec?: number): Promise<string>;
   /** daemon 卡死/丢失时的恢复(kill + reconnect)。 */
   recover(): Promise<void>;
+  /** 截图(CV/self-drawn 定位用);走 uitest screenCap 命令行 → pull → base64 → Buffer。 */
+  screenshot(): Promise<Buffer>;
 }
