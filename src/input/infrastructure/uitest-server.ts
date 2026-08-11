@@ -146,7 +146,14 @@ export class UitestServer implements IUitestServer {
   }
 
   async inputText(x: number, y: number, content: string): Promise<void> {
-    const request = buildCallHypiumRequest('Driver.inputText', [[{ x, y }, content]]);
+    // arkxtest Driver.inputText(point, text):内部先 click(point) 聚焦再注入文本
+    // (test/testfwk/arkxtest/uitest/core/frontend_api_handler.cpp:1149,@ohos.UiTest.ets:1114)。
+    // ReadCallArg 按 paramList_ 索引取参(frontend_api_handler.cpp:727):[0]=pointJson {x,y},[1]=text。
+    // ——> args 必须平铺 [point, text],与 setRotation([rotation]) 同构。
+    // 历史 bug:原代码 [[{x,y},content]] 多包一层 [],致 paramList_[0] 拿到整个内层数组,
+    // pointJson["x"] 为 undefined → Point(undefined,undefined) → click+inputText 落空
+    // (字符没进框,但 doSendRequest 返回成功)。去外层 [] 即恢复 socket 路径,无需降级命令行。
+    const request = buildCallHypiumRequest('Driver.inputText', [{ x, y }, content]);
     await this.doSendRequest(request);
   }
 
