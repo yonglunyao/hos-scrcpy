@@ -184,7 +184,13 @@ export function createMcpServer(): McpServer {
       if (format === 'click') {
         // 供建图:只可点元素 + 坐标,过滤图标/状态栏噪音,避免 json 全量爆 context
         const els = model.elements
-          .filter((e) => e.attrs?.clickable && (e.texts?.length || e.hint) && e.attrs?.type !== 'Image' && e.attrs?.type !== '__Common__')
+          .filter((e) => {
+            if (!e.attrs?.clickable || !(e.texts?.length || e.hint)) return false;
+            if (e.attrs?.type === 'Image' || e.attrs?.type === '__Common__') return false;
+            const t = (e.texts || [])[0] || e.hint || '';
+            // 过滤 webview 页 URL/ab 字段噪音(genericContainer/link 带 1000+ 字符 URL,clickable 但非真按钮)
+            return t.length > 0 && t.length <= 80 && !/^https?:\/\/|^tsearch/i.test(t);
+          })
           .map((e) => `${e.ref} [${e.attrs?.type}] @(${e.center.x},${e.center.y}) "${(e.texts || [])[0] || e.hint || ''}"`);
         return text(`页 ${model.elements.length} 元素,可点 ${els.length}:\n${els.join('\n')}`);
       }
