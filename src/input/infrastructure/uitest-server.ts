@@ -253,8 +253,14 @@ export class UitestServer implements IUitestServer {
     const versionResult = await this.device.getUitestVersion();
 
     let agentName: string;
+    // versionResult 无效(daemon 重启中 getUitestVersion 返 0.0.0/空)时,旧版分支
+    // compareVersion('5.1.1.2','0.0.0')>=0 会误选 old(1.1.3,可能缺失)→ daemon 起不来。
+    // 无效时 fallback 最新 sec(设备多 1.2.x),避免误选老 SO 致回放中断。
+    const validVersion = !!versionResult && versionResult !== '0.0.0' && /\d/.test(versionResult);
     if (typeResult.includes('x86_64')) {
       agentName = AGENT_NAMES.x86_64;
+    } else if (!validVersion) {
+      agentName = AGENT_NAMES.sec;
     } else if (this.device.compareVersion('5.1.1.2', versionResult) >= 0) {
       agentName = AGENT_NAMES.old;
     } else if (this.device.compareVersion(UITEST_SPLIT_VERSION, versionResult) === 0) {
