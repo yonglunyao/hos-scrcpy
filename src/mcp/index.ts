@@ -172,20 +172,21 @@ export function createMcpServer(): McpServer {
         '每行格式 @eN#sN [type] text → 相关text。用 act("@eN#sN","click") 操作引用,find 查找特定元素。' +
         'format=compact(默认,给agent看)/json(结构化,含 bounds)。@eN 跨 dump 失效,操作后需重新 dump_ui。',
       inputSchema: {
-        format: z.enum(['compact', 'json']).default('compact').describe('输出格式'),
+        format: z.enum(['compact', 'json', 'click']).default('compact').describe('输出格式:compact(默认)/json(全量)/click(只可点元素+坐标,供建图)'),
       },
       annotations: READ_ONLY,
     },
     async ({ format }) => {
       const { model, render } = await captureScreenModel();
       if (format === 'json') {
-        return text(
-          JSON.stringify(
-            { generation: model.generation, count: model.elements.length, elements: model.elements },
-            null,
-            2,
-          ),
-        );
+        return text(JSON.stringify({ generation: model.generation, count: model.elements.length, elements: model.elements }, null, 2));
+      }
+      if (format === 'click') {
+        // 供建图:只可点元素 + 坐标,过滤图标/状态栏噪音,避免 json 全量爆 context
+        const els = model.elements
+          .filter((e) => e.attrs?.clickable && (e.texts?.length || e.hint) && e.attrs?.type !== 'Image' && e.attrs?.type !== '__Common__')
+          .map((e) => `${e.ref} [${e.attrs?.type}] @(${e.center.x},${e.center.y}) "${(e.texts || [])[0] || e.hint || ''}"`);
+        return text(`页 ${model.elements.length} 元素,可点 ${els.length}:\n${els.join('\n')}`);
       }
       return text(render);
     },
@@ -205,6 +206,56 @@ export function createMcpServer(): McpServer {
       annotations: DESTRUCTIVE,
     },
     async ({ ref, op, duration_ms }) => text(await actByRef(ref, op, duration_ms)),
+  );
+
+  server.registerTool(
+    'map_record',
+    {
+      description:
+        '【建图】写 agent-map 页节点或边(纯文件写,不连设备 daemon)。kind=page:id+name+anchors(逗号分隔)+renderType+priority;' +
+        'kind=edge:from+to+via+coordX+coordY+locatorText(可选)。文件 spike/maps/<bundle>.agent-map.json。agent 决策、工具记录。',
+      inputSchema: {
+        bundle: z.string().describe('app bundle,决定地图文件名'),
+        kind: z.enum(['page', 'edge']),
+        id: z.string().optional().describe('page: 页 id'),
+        name: z.string().optional().describe('page: 页名'),
+        anchors: z.string().optional().describe('page: 锚点(逗号分隔,可中文逗号)'),
+        renderType: z.enum(['native', 'self-drawn', 'web']).optional().describe('page: 渲染类型'),
+        priority: z.enum(['high', 'medium', 'low', 'skip']).optional().describe('page: 回放优先级'),
+        from: z.string().optional().describe('edge: 源页 id'),
+        to: z.string().optional().describe('edge: 目标页 id'),
+        via: z.string().optional().describe('edge: 经由(按钮/入口名)'),
+        coordX: z.number().optional().describe('edge: 入口坐标 x'),
+        coordY: z.number().optional().describe('edge: 入口坐标 y'),
+        locatorText: z.string().optional().describe('edge: locator 文本(可选,native 定位用)'),
+      },
+    },
+    async (a) => {
+      const path = await import('path');
+      const fs = await import('fs');
+      const file = path.resolve(process.cwd(), 'spike/maps', `${a.bundle}.agent-map.json`);
+      let m: Record<string, unknown>;
+      try {
+        m = JSON.parse(fs.readFileSync(file, 'utf8'));
+      } catch {
+        m = { appBundle: a.bundle, method: 'agent-driven-vision', note: 'agent 驱动建图', pages: {}, edges: [], root: '', entryAbility: 'MainAbility' };
+      }
+      if (a.kind === 'page') {
+        (m.pages as Record<string, unknown>)[a.id!] = {
+          name: a.name, type: a.name,
+          anchors: (a.anchors || '').split(/[,，]/).map((s: string) => s.trim()).filter(Boolean),
+          renderType: a.renderType || 'native', priority: a.priority || 'medium',
+          visitedAt: new Date().toISOString().slice(0, 10),
+        };
+        if (!m.root) m.root = a.id;
+      } else {
+        const edge: Record<string, unknown> = { from: a.from, to: a.to, via: a.via, op: 'navigate', coord: [a.coordX, a.coordY], coordSource: 'dump' };
+        if (a.locatorText) edge.locator = { text: a.locatorText };
+        (m.edges as unknown[]).push(edge);
+      }
+      fs.writeFileSync(file, JSON.stringify(m, null, 2));
+      return text(`${a.kind} recorded → ${file}; pages ${Object.keys(m.pages as object).length} edges ${(m.edges as unknown[]).length}`);
+    },
   );
 
   server.registerTool(
